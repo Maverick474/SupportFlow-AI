@@ -51,6 +51,42 @@ function agentLabel(agentType) {
   return AGENT_OPTIONS.find((agent) => agent.value === agentType)?.label || 'General'
 }
 
+function removeChatCitations(content) {
+  let visibleText = ''
+  let cursor = 0
+
+  while (cursor < content.length) {
+    const citationStart = content.indexOf('[', cursor)
+    if (citationStart === -1) {
+      visibleText += content.slice(cursor)
+      break
+    }
+
+    const citationEnd = content.indexOf(']', citationStart + 1)
+    if (citationEnd === -1) {
+      visibleText += content.slice(cursor)
+      break
+    }
+
+    const label = content.slice(citationStart + 1, citationEnd)
+    const looksLikeSourceLabel = label.toLowerCase().includes(', p.')
+    visibleText += content.slice(cursor, citationStart)
+    if (!looksLikeSourceLabel) {
+      visibleText += content.slice(citationStart, citationEnd + 1)
+    }
+    cursor = citationEnd + 1
+  }
+
+  const lineBreak = String.fromCharCode(10)
+  const compactedLines = []
+  visibleText.split(lineBreak).forEach((line) => {
+    const cleanedLine = line.trimEnd()
+    if (cleanedLine.trim() === '' && compactedLines.at(-1) === '') return
+    compactedLines.push(cleanedLine)
+  })
+  return compactedLines.join(lineBreak).trim()
+}
+
 export default function Main({ onNavigate }) {
   const {
     user,
@@ -401,7 +437,7 @@ export default function Main({ onNavigate }) {
                           </span>
                         )}
                       </div>
-                      <div className="message-bubble">{message.content}</div>
+                      <div className="message-bubble">{removeChatCitations(message.content)}</div>
                       {message.citations?.length > 0 && (
                         <div className="citation-list" aria-label="Answer sources">
                           {message.citations.map((citation) => <span key={citation}>Source · {citation}</span>)}
