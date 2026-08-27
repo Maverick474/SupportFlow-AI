@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 
 import { useSupportFlow } from '../context/contextApi.jsx'
 
+const PASSWORD_PATTERN = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,}$/
+
 function createWorkspaceId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
   return '00000000-0000-4000-8000-000000000000'
@@ -17,11 +19,27 @@ export default function SignUp({ onNavigate }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const passwordReady = useMemo(() => password.length >= 8, [password])
+  const passwordRules = useMemo(
+    () => ({
+      minimumLength: password.length >= 8,
+      uppercase: /[A-Z]/.test(password),
+      number: /\d/.test(password),
+      special: /[^A-Za-z0-9\s]/.test(password),
+    }),
+    [password],
+  )
+  const passwordReady = useMemo(
+    () => PASSWORD_PATTERN.test(password),
+    [password],
+  )
 
   async function handleSubmit(event) {
     event.preventDefault()
     setError('')
+    if (!passwordReady) {
+      setError('Password must satisfy all four requirements.')
+      return
+    }
     setSubmitting(true)
     try {
       await signUp({
@@ -94,15 +112,28 @@ export default function SignUp({ onNavigate }) {
             <input
               type="password"
               autoComplete="new-password"
-              placeholder="At least 8 characters"
+              placeholder="Create a strong password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               minLength={8}
+              pattern={PASSWORD_PATTERN.source}
+              title="Use at least 8 characters with one uppercase letter, one number, and one special character."
               required
             />
-            <small className={passwordReady ? 'field-hint valid' : 'field-hint'}>
-              <span>{passwordReady ? '✓' : '•'}</span> Minimum 8 characters
-            </small>
+            <div className="password-requirements" aria-live="polite">
+              <small className={passwordRules.minimumLength ? 'field-hint valid' : 'field-hint'}>
+                <span>{passwordRules.minimumLength ? '✓' : '•'}</span> Minimum 8 characters
+              </small>
+              <small className={passwordRules.uppercase ? 'field-hint valid' : 'field-hint'}>
+                <span>{passwordRules.uppercase ? '✓' : '•'}</span> One uppercase letter
+              </small>
+              <small className={passwordRules.number ? 'field-hint valid' : 'field-hint'}>
+                <span>{passwordRules.number ? '✓' : '•'}</span> One number
+              </small>
+              <small className={passwordRules.special ? 'field-hint valid' : 'field-hint'}>
+                <span>{passwordRules.special ? '✓' : '•'}</span> One special character
+              </small>
+            </div>
           </label>
 
           <div className="workspace-field">

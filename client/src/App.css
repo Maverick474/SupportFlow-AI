@@ -482,6 +482,9 @@ select:focus-visible {
 .setup-steps p { margin: 3px 0 0; color: rgba(255,255,255,.55); font-size: 12px; }
 .field-hint { color: var(--muted); font-size: 11px; }
 .field-hint.valid { color: var(--green-dark); }
+.password-requirements { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 12px; }
+.password-requirements .field-hint { display: flex; align-items: center; gap: 5px; }
+.password-requirements .field-hint span { width: 10px; flex: 0 0 auto; }
 .workspace-label-row { display: flex; justify-content: space-between; align-items: center; }
 .workspace-label-row button { font-size: 11px; }
 .workspace-summary {
