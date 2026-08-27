@@ -10,8 +10,7 @@ from controller.auth_service import AuthService
 from controller.chat_service import ChatService
 from controller.config import Settings
 from controller.conversation_store import ConversationStore
-from vector.ingestion import KnowledgeIngestionService
-from vector.repository import AgentRecordRepository
+from service.knowledge import AgentRecordRepository, KnowledgeIngestionService
 
 
 @dataclass(slots=True)

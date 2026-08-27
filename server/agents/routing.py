@@ -1,3 +1,5 @@
+import re
+
 from langsmith import traceable
 
 from models.chat import AgentType
@@ -6,7 +8,9 @@ from models.chat import AgentType
 AGENT_KEYWORDS: dict[AgentType, tuple[str, ...]] = {
     "billing": (
         "bill",
+        "billing",
         "charge",
+        "charged",
         "invoice",
         "payment",
         "refund",
@@ -62,6 +66,9 @@ def route_agent_type(
 
     normalized = question.casefold()
     for agent_type in ("billing", "account", "policy", "technical"):
-        if any(keyword in normalized for keyword in AGENT_KEYWORDS[agent_type]):
+        if any(
+            re.search(rf"\b{re.escape(keyword)}\b", normalized)
+            for keyword in AGENT_KEYWORDS[agent_type]
+        ):
             return agent_type
     return "general"

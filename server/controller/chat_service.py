@@ -7,7 +7,7 @@ from controller.conversation_store import ConversationStore
 from models.agent import AgentState
 from models.auth import UserPublic
 from models.chat import ChatRequest, ChatResponse
-from vector.repository import AgentRecordRepository
+from service.knowledge import AgentRecordRepository
 
 
 class ChatService:

@@ -12,8 +12,7 @@ from redis import Redis
 from agents.prompts import GENERATOR_PROMPT, REFINER_PROMPT, VALIDATOR_PROMPT
 from controller.config import Settings
 from models.agent import AgentState, ClaimAudit, DraftAnswer, ValidationResult
-from vector.embeddings import create_embedding_model
-from vector.repository import AgentRecordRepository
+from service.knowledge import AgentRecordRepository, create_embedding_model
 
 
 def format_conversation_history(state: AgentState, limit: int = 2) -> str:
