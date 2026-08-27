@@ -24,6 +24,9 @@ MAX_REVISIONS = 2
 
 
 def format_conversation_history(state: AgentState, limit: int = 3) -> str:
+    if not is_contextual_follow_up(state["question"]):
+        return "(not needed for this standalone question)"
+
     turns = state.get("conversation_history", [])[-limit:]
     if not turns:
         return "(no earlier turns)"
@@ -58,6 +61,29 @@ def is_contextual_follow_up(question: str) -> bool:
             normalized,
         )
     )
+
+
+def conversation_recall_kind(
+    question: str,
+) -> Literal["question", "answer"] | None:
+    normalized = normalize_evidence_text(question).casefold()
+    question_patterns = (
+        r"\bwhat did i (?:just )?ask(?: you)?\b",
+        r"\bwhat was my (?:last|previous) question\b",
+        r"\brepeat (?:my|the) (?:last|previous) question\b",
+        r"\bwhat did i (?:just )?say\b",
+    )
+    if any(re.search(pattern, normalized) for pattern in question_patterns):
+        return "question"
+
+    answer_patterns = (
+        r"\bwhat did you (?:just )?(?:say|answer)\b",
+        r"\bwhat was your (?:last|previous) answer\b",
+        r"\brepeat (?:your|the) (?:last|previous) answer\b",
+    )
+    if any(re.search(pattern, normalized) for pattern in answer_patterns):
+        return "answer"
+    return None
 
 
 def build_retrieval_query(state: AgentState) -> str:
@@ -116,17 +142,27 @@ def inline_source_labels(answer: str, valid_labels: list[str]) -> list[str]:
     return [label for _, label in sorted(positioned)]
 
 
-def uncited_list_items(
-    answer: str,
+def resolve_source_label(
+    raw_label: str,
     valid_labels: list[str],
-) -> list[str]:
-    citation_tokens = [f"[{label}]" for label in valid_labels]
-    return [
-        line.strip()
-        for line in answer.splitlines()
-        if re.match(r"^\s*(?:\d+[.)]|[-*])\s+\S", line)
-        and not any(token in line for token in citation_tokens)
+    aliases: dict[str, str] | None = None,
+) -> str | None:
+    label = raw_label.strip()
+    if label.startswith("Source:"):
+        label = label.removeprefix("Source:").strip()
+    if aliases and label in aliases:
+        return aliases[label]
+    if label in valid_labels:
+        return label
+
+    normalized = label.rstrip(" .")
+    matches = [
+        candidate
+        for candidate in valid_labels
+        if candidate.rstrip(" .") == normalized
+        or candidate.startswith(f"{normalized},")
     ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def canonicalize_draft_citations(
@@ -147,6 +183,20 @@ def canonicalize_draft_citations(
         answer = answer.replace(f"[Source: {label}]", f"[{label}]")
     for alias, label in aliases.items():
         answer = answer.replace(f"[Source: {alias}]", f"[{label}]")
+    for bracketed_text in answer.split("[")[1:]:
+        if "]" not in bracketed_text:
+            continue
+        bracketed_label = bracketed_text.split("]", 1)[0]
+        resolved = resolve_source_label(
+            bracketed_label,
+            valid_labels,
+            aliases,
+        )
+        if resolved:
+            answer = answer.replace(
+                f"[{bracketed_label}]",
+                f"[{resolved}]",
+            )
 
     inline_labels = inline_source_labels(answer, valid_labels)
 
@@ -155,11 +205,9 @@ def canonicalize_draft_citations(
         citation = raw_citation.strip()
         if citation.startswith("[") and citation.endswith("]"):
             citation = citation[1:-1].strip()
-        if citation.startswith("Source:"):
-            citation = citation.removeprefix("Source:").strip()
-        citation = aliases.get(citation, citation)
-        if citation in valid_set:
-            declared_labels.append(citation)
+        resolved = resolve_source_label(citation, valid_labels, aliases)
+        if resolved in valid_set:
+            declared_labels.append(resolved)
 
     canonical = inline_labels or list(dict.fromkeys(declared_labels))
     return draft.model_copy(
@@ -203,6 +251,22 @@ def audit_quote_matches_source(
         else:
             return True
     return False
+
+
+def unique_source_for_audit_quote(
+    audit: ClaimAudit,
+    source_passages: dict[str, list[str]],
+    ordered_labels: list[str],
+) -> str | None:
+    matching_labels = [
+        label
+        for label in ordered_labels
+        if audit_quote_matches_source(
+            audit.model_copy(update={"source_label": label}),
+            source_passages,
+        )
+    ]
+    return matching_labels[0] if len(matching_labels) == 1 else None
 
 
 class SupportFlowWorkflow:
@@ -363,9 +427,63 @@ class SupportFlowWorkflow:
 
         ordered_evidence_labels = evidence_source_labels(evidence)
         evidence_labels = set(ordered_evidence_labels)
-        declared_citations = state["draft"].citations
+        source_passages = passages_by_source(evidence)
+        normalized_audits = []
+        audit_source_targets: dict[str, set[str]] = {}
+        for audit in result.claim_audits:
+            resolved_source = resolve_source_label(
+                audit.source_label,
+                ordered_evidence_labels,
+            )
+            normalized_source = resolved_source or audit.source_label
+            normalized_audit = audit.model_copy(
+                update={"source_label": normalized_source}
+            )
+            quote_source = unique_source_for_audit_quote(
+                normalized_audit,
+                source_passages,
+                ordered_evidence_labels,
+            )
+            if quote_source:
+                normalized_audit = normalized_audit.model_copy(
+                    update={"source_label": quote_source}
+                )
+                if normalized_source in evidence_labels:
+                    audit_source_targets.setdefault(
+                        normalized_source,
+                        set(),
+                    ).add(quote_source)
+            normalized_audits.append(
+                normalized_audit
+            )
+        result = result.model_copy(
+            update={"claim_audits": normalized_audits}
+        )
+
+        draft = state["draft"]
+        answer = draft.answer
+        for old_source, target_sources in audit_source_targets.items():
+            if len(target_sources) == 1:
+                new_source = next(iter(target_sources))
+                if new_source != old_source:
+                    answer = answer.replace(
+                        f"[{old_source}]",
+                        f"[{new_source}]",
+                    )
+        if answer != draft.answer:
+            draft = draft.model_copy(
+                update={
+                    "answer": answer,
+                    "citations": inline_source_labels(
+                        answer,
+                        ordered_evidence_labels,
+                    ),
+                }
+            )
+
+        declared_citations = draft.citations
         inline_citations = inline_source_labels(
-            state["draft"].answer,
+            draft.answer,
             ordered_evidence_labels,
         )
         invalid_citations = [
@@ -383,10 +501,6 @@ class SupportFlowWorkflow:
             for citation in inline_citations
             if citation not in declared_citations
         ]
-        uncited_items = uncited_list_items(
-            state["draft"].answer,
-            ordered_evidence_labels,
-        )
         failed_audits = [
             audit.claim for audit in result.claim_audits if not audit.supported
         ]
@@ -395,7 +509,6 @@ class SupportFlowWorkflow:
             for audit in result.claim_audits
             if audit.supported and audit.source_label not in evidence_labels
         ]
-        source_passages = passages_by_source(evidence)
         invalid_audit_quotes = [
             audit.claim
             for audit in result.claim_audits
@@ -408,7 +521,6 @@ class SupportFlowWorkflow:
             or invalid_citations
             or missing_inline
             or undeclared_inline
-            or uncited_items
         )
         audit_problems = bool(
             not result.claim_audits
@@ -427,10 +539,6 @@ class SupportFlowWorkflow:
                 problems.append("place every declared citation inline")
             if undeclared_inline:
                 problems.append("declare every inline source label")
-            if uncited_items:
-                problems.append(
-                    "add an exact inline source label to every factual list item"
-                )
             if not result.claim_audits:
                 problems.append("audit every atomic factual claim")
             if failed_audits:
@@ -468,7 +576,7 @@ class SupportFlowWorkflow:
                     "feedback": "The answer remained unverified after revision.",
                 }
             )
-        return {"validation": result}
+        return {"validation": result, "draft": draft}
 
     def refine_node(self, state: AgentState) -> dict:
         _, _, refiner_chain = self._chains(
@@ -523,6 +631,66 @@ class SupportFlowWorkflow:
         }
 
     @staticmethod
+    def conversation_recall_node(state: AgentState) -> dict:
+        history = state.get("conversation_history", [])
+        recall_kind = conversation_recall_kind(state["question"])
+
+        if not history:
+            final = "There isn’t an earlier message in this conversation yet."
+        elif recall_kind == "answer":
+            previous_answer = history[-1].get("answer", "").strip()
+            final = (
+                f"My previous answer was: {previous_answer}"
+                if previous_answer
+                else "I don’t have a previous answer in this conversation."
+            )
+        else:
+            previous_question = history[-1].get("question", "").strip()
+            final = (
+                f"Your previous question was: {previous_question}"
+                if previous_question
+                else "I don’t have a previous question in this conversation."
+            )
+
+        draft = DraftAnswer(
+            answer=final,
+            citations=[],
+            requires_human_review=False,
+            uncertainty="",
+        )
+        validation = ValidationResult(
+            verdict="pass",
+            grounded=True,
+            citations_valid=True,
+            claim_audits=[],
+            unsupported_claims=[],
+            feedback="Answered from this conversation's Redis-backed memory.",
+        )
+        completed_turn = {
+            "question": state["question"],
+            "answer": final,
+            "verdict": "pass",
+        }
+        return {
+            "retrieval_query": state["question"],
+            "retrieved_passages": [],
+            "retrieved_chunk_ids": [],
+            "draft": draft,
+            "validation": validation,
+            "revision_count": 0,
+            "final_answer": final,
+            "conversation_history": history[-2:] + [completed_turn],
+        }
+
+    @staticmethod
+    def route_from_start(state: AgentState) -> Literal["recall", "retrieve"]:
+        return (
+            "recall"
+            if conversation_recall_kind(state["question"]) is not None
+            else "retrieve"
+        )
+
+    @staticmethod
     def route_after_validation(
         state: AgentState,
     ) -> Literal["refine", "finalize"]:
@@ -534,6 +702,15 @@ class SupportFlowWorkflow:
 
     def _build_graph(self):
         builder = StateGraph(AgentState)
+        builder.add_node(
+            "conversation_recall",
+            RunnableLambda(self.conversation_recall_node).with_config(
+                {
+                    "run_name": "supportflow.conversation-memory",
+                    "tags": ["supportflow", "agent:memory"],
+                }
+            ),
+        )
         builder.add_node(
             "retrieve",
             RunnableLambda(self.retrieve_node).with_config(
@@ -580,7 +757,12 @@ class SupportFlowWorkflow:
             ),
         )
 
-        builder.add_edge(START, "retrieve")
+        builder.add_conditional_edges(
+            START,
+            self.route_from_start,
+            {"recall": "conversation_recall", "retrieve": "retrieve"},
+        )
+        builder.add_edge("conversation_recall", END)
         builder.add_edge("retrieve", "generate")
         builder.add_edge("generate", "validate")
         builder.add_conditional_edges(

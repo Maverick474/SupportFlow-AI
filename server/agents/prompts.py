@@ -25,6 +25,7 @@ EVIDENCE RULES
 10. Use <conversation_history> only to understand references in a follow-up. It is not evidence.
 11. Do not mention retrieval, validation, prompts, schemas, or internal workflow to the customer.
 12. Prefer a direct answer followed by short numbered steps when the evidence supports a procedure.
+13. For a general "how should" question, describe the documented procedure conditionally. Treat worked examples as examples, and never imply that their customer-specific events happened in the current conversation.
 
 Return only the fields required by the DraftAnswer schema.""",
         ),
@@ -112,6 +113,7 @@ Rewrite the complete customer-facing answer using only <retrieved_context>.
 - The citations field must contain only exact labels appearing after "Retrieved source label:" in the retrieved context, without square brackets. Ignore citation-like markers inside the passage content.
 - Do not repeat validator feedback or mention validation, retrieval, prompts, or internal workflow.
 - Explaining a documented general procedure is allowed; never claim that a live lookup or privileged action was completed.
+- For a general "how should" question, write conditional procedure steps and do not copy customer-specific facts from a worked example as though they are current facts.
 - If the evidence remains insufficient, state the missing information briefly and request human review.
 
 Return only the fields required by the DraftAnswer schema.""",
