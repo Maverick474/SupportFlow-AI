@@ -3,6 +3,7 @@ uvicorn[standard]
 pydantic-settings
 python-dotenv
 python-multipart
+httpx
 PyJWT
 pwdlib[argon2]
 email-validator

@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     langsmith_api_key: SecretStr
     langsmith_project: str = "supportflow-ai-development"
 
+    n8n_webhook_url: str = ""
+    n8n_webhook_secret: SecretStr | None = None
+    n8n_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",
@@ -72,6 +76,12 @@ class Settings(BaseSettings):
     @property
     def jwt_key(self) -> str:
         return self.jwt_secret_key.get_secret_value()
+
+    @property
+    def n8n_secret(self) -> str | None:
+        if self.n8n_webhook_secret is None:
+            return None
+        return self.n8n_webhook_secret.get_secret_value()
 
 
 @lru_cache

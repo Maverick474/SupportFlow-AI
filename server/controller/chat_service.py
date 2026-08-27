@@ -8,6 +8,7 @@ from models.agent import AgentState
 from models.auth import UserPublic
 from models.chat import ChatRequest, ChatResponse
 from service.knowledge import AgentRecordRepository
+from service.n8n import N8nWebhookClient
 
 
 class ChatService:
@@ -17,10 +18,12 @@ class ChatService:
         repository: AgentRecordRepository,
         conversation_store: ConversationStore,
         workflow: SupportFlowWorkflow,
+        n8n_webhook: N8nWebhookClient,
     ) -> None:
         self.repository = repository
         self.conversation_store = conversation_store
         self.workflow = workflow
+        self.n8n_webhook = n8n_webhook
 
     async def ask(
         self,
@@ -106,6 +109,17 @@ class ChatService:
             ticket_id=request.ticket_id,
             question=request.question,
             result=result,
+        )
+        validation = result["validation"]
+        self.n8n_webhook.dispatch(
+            {
+                "event_type": "agent_run_completed",
+                "run_id": str(run_id),
+                "agent_type": agent_type,
+                "validation_status": validation.verdict,
+                "requires_human_review": validation.verdict
+                in {"escalate", "refuse"},
+            }
         )
         return ChatResponse(
             conversation_id=conversation_id,
