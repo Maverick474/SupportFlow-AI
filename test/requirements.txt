@@ -1,0 +1,7 @@
+langchain
+langchain-openai
+langgraph 
+python-dotenv
+langchain-community 
+langchain-core 
+langgraph-checkpoint-redis
