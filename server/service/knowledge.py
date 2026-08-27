@@ -1,8 +1,8 @@
 """Knowledge ingestion, vector retrieval, and agent-run storage in Supabase."""
 
+import os
 import re
 import tempfile
-from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -19,12 +19,6 @@ from models.chat import AgentType, KnowledgeIngestResponse, Visibility
 
 GENERATOR_MODEL = "openai/gpt-4o-mini"
 VALIDATOR_MODEL = "openai/gpt-4.1-mini"
-DEFAULT_HANDBOOK = (
-    Path(__file__).resolve().parent.parent
-    / "assets"
-    / "SupportFlow_Cloud_Knowledge_Handbook_v2.0_Expanded.pdf"
-)
-
 
 def create_embedding_model(settings: Settings) -> OpenAIEmbeddings:
     """Create the notebook's OpenRouter embedding client."""
@@ -169,7 +163,7 @@ class AgentRecordRepository:
 
 
 class KnowledgeIngestionService:
-    """Load, chunk, embed, and save the project PDF in Supabase."""
+    """Load, chunk, embed, and save uploaded PDFs in Supabase."""
 
     def __init__(
         self,
@@ -192,28 +186,7 @@ class KnowledgeIngestionService:
             candidate = candidate.replace("[", "(").replace("]", ")")
             if candidate and not candidate.isdigit():
                 return candidate[:160]
-        return "SupportFlow Cloud Knowledge Handbook"
-
-    @traceable(name="supportflow.knowledge-ingestion", run_type="chain")
-    def ingest_default_handbook(
-        self,
-        *,
-        workspace_id: UUID,
-        agent_type: AgentType | None,
-        replace_existing: bool,
-    ) -> KnowledgeIngestResponse:
-        if not DEFAULT_HANDBOOK.is_file():
-            raise FileNotFoundError(
-                f"Knowledge handbook was not found at {DEFAULT_HANDBOOK}."
-            )
-
-        return self._ingest_pdf(
-            pdf_path=DEFAULT_HANDBOOK,
-            document_name=DEFAULT_HANDBOOK.name,
-            workspace_id=workspace_id,
-            agent_type=agent_type,
-            replace_existing=replace_existing,
-        )
+        return "SupportFlow Knowledge Document"
 
     @traceable(name="supportflow.knowledge-upload", run_type="chain")
     def ingest_uploaded_pdf(
@@ -225,12 +198,12 @@ class KnowledgeIngestionService:
         agent_type: AgentType | None,
         replace_existing: bool,
     ) -> KnowledgeIngestResponse:
-        """Ingest a PDF uploaded by an authenticated workspace member."""
-        temporary_path: Path | None = None
+        """Ingest a PDF uploaded by an authorized workspace manager."""
+        temporary_path: str | None = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
                 temp_file.write(pdf_bytes)
-                temporary_path = Path(temp_file.name)
+                temporary_path = temp_file.name
 
             return self._ingest_pdf(
                 pdf_path=temporary_path,
@@ -241,19 +214,22 @@ class KnowledgeIngestionService:
             )
         finally:
             if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
+                try:
+                    os.remove(temporary_path)
+                except FileNotFoundError:
+                    pass
 
     def _ingest_pdf(
         self,
         *,
-        pdf_path: Path,
+        pdf_path: str,
         document_name: str,
         workspace_id: UUID,
         agent_type: AgentType | None,
         replace_existing: bool,
     ) -> KnowledgeIngestResponse:
         try:
-            pages = PyPDFLoader(str(pdf_path)).load()
+            pages = PyPDFLoader(pdf_path).load()
         except Exception as exc:
             raise ValueError(
                 "The uploaded file could not be read as a PDF."
@@ -274,7 +250,7 @@ class KnowledgeIngestionService:
 
         chunks = self.splitter.split_documents(pages)
         if not chunks:
-            raise ValueError("The handbook did not produce any text chunks.")
+            raise ValueError("The PDF did not produce any readable text chunks.")
 
         embeddings = self.embedding_model.embed_documents(
             [chunk.page_content for chunk in chunks]

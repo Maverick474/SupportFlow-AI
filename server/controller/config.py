@@ -1,13 +1,13 @@
 from functools import lru_cache
-from pathlib import Path
+import os
 
 from dotenv import load_dotenv
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-SERVER_DIR = Path(__file__).resolve().parent.parent
-ENV_FILE = SERVER_DIR / ".env"
+SERVER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_FILE = os.path.join(SERVER_DIR, ".env")
 
 # LangSmith reads its settings directly from the process environment.
 load_dotenv(ENV_FILE, override=False)

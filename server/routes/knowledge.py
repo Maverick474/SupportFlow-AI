@@ -1,5 +1,5 @@
 import asyncio
-from pathlib import Path
+import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
@@ -7,7 +7,7 @@ from controller.dependencies import get_resources
 from controller.resources import AppResources
 from middleware.auth import require_admin
 from models.auth import UserPublic
-from models.chat import AgentType, KnowledgeIngestRequest, KnowledgeIngestResponse
+from models.chat import AgentType, KnowledgeIngestResponse
 
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -27,7 +27,9 @@ async def upload_knowledge_pdf(
     resources: AppResources = Depends(get_resources),
 ) -> KnowledgeIngestResponse:
     """Upload and index a PDF for an owner or admin workspace."""
-    document_name = Path(file.filename or "knowledge.pdf").name
+    document_name = os.path.basename(
+        (file.filename or "knowledge.pdf").replace("\\", "/")
+    )
     if not document_name.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -64,29 +66,5 @@ async def upload_knowledge_pdf(
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
-        ) from exc
-
-
-@router.post(
-    "/ingest-default",
-    response_model=KnowledgeIngestResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def ingest_default_handbook(
-    request: KnowledgeIngestRequest,
-    user: UserPublic = Depends(require_admin),
-    resources: AppResources = Depends(get_resources),
-) -> KnowledgeIngestResponse:
-    try:
-        return await asyncio.to_thread(
-            resources.ingestion_service.ingest_default_handbook,
-            workspace_id=user.workspace_id,
-            agent_type=request.agent_type,
-            replace_existing=request.replace_existing,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc

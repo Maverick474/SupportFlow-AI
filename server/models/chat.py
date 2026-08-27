@@ -43,11 +43,6 @@ class ChatMessage(BaseModel):
     created_at: datetime
 
 
-class KnowledgeIngestRequest(BaseModel):
-    agent_type: AgentType | None = None
-    replace_existing: bool = True
-
-
 class KnowledgeIngestResponse(BaseModel):
     document: str
     pages: int
