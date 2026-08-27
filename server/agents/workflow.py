@@ -12,10 +12,18 @@ from redis import Redis
 from agents.prompts import GENERATOR_PROMPT, REFINER_PROMPT, VALIDATOR_PROMPT
 from controller.config import Settings
 from models.agent import AgentState, ClaimAudit, DraftAnswer, ValidationResult
-from service.knowledge import AgentRecordRepository, create_embedding_model
+from service.knowledge import (
+    AgentRecordRepository,
+    create_embedding_model,
+    extract_section_title,
+)
 
 
-def format_conversation_history(state: AgentState, limit: int = 2) -> str:
+MAX_COMPLETION_TOKENS = 1_000
+MAX_REVISIONS = 2
+
+
+def format_conversation_history(state: AgentState, limit: int = 3) -> str:
     turns = state.get("conversation_history", [])[-limit:]
     if not turns:
         return "(no earlier turns)"
@@ -28,9 +36,48 @@ def format_conversation_history(state: AgentState, limit: int = 2) -> str:
     return "\n".join(formatted_turns)
 
 
-def previous_user_question(state: AgentState) -> str:
+def is_contextual_follow_up(question: str) -> bool:
+    normalized = normalize_evidence_text(question).casefold()
+    if normalized.startswith(
+        (
+            "and ",
+            "also ",
+            "then ",
+            "what if ",
+            "how about ",
+            "what about ",
+            "why is that",
+            "why does that",
+        )
+    ):
+        return True
+    return bool(
+        re.search(
+            r"\b(it|its|that|this|they|them|their|those|these|"
+            r"former|latter|same|previous|above)\b",
+            normalized,
+        )
+    )
+
+
+def build_retrieval_query(state: AgentState) -> str:
+    question = state["question"]
     turns = state.get("conversation_history", [])
-    return turns[-1]["question"] if turns else ""
+    if not turns or not is_contextual_follow_up(question):
+        return question
+
+    prior_questions = [
+        normalize_evidence_text(turn["question"])
+        for turn in turns[-2:]
+        if turn.get("question")
+    ]
+    if not prior_questions:
+        return question
+    context = "\n".join(f"- {item}" for item in prior_questions)
+    return (
+        f"Previous questions that establish the follow-up topic:\n{context}\n"
+        f"Current follow-up question: {question}"
+    )
 
 
 def normalize_evidence_text(text: str) -> str:
@@ -39,11 +86,93 @@ def normalize_evidence_text(text: str) -> str:
 
 def passages_by_source(evidence: str) -> dict[str, list[str]]:
     passages: dict[str, list[str]] = {}
-    pattern = r"\[Source: ([^\]]+)\]\n(.*?)(?=\n\n\[Source: |\Z)"
+    pattern = (
+        r"\[Retrieved source label: ([^\]]+)\]\n"
+        r"(.*?)(?=\n\n\[Retrieved source label: |\Z)"
+    )
     for match in re.finditer(pattern, evidence, flags=re.DOTALL):
         label, passage = match.groups()
         passages.setdefault(label, []).append(normalize_evidence_text(passage))
     return passages
+
+
+def evidence_source_labels(evidence: str) -> list[str]:
+    return list(
+        dict.fromkeys(
+            re.findall(
+                r"\[Retrieved source label: ([^\]]+)\]",
+                evidence,
+            )
+        )
+    )
+
+
+def inline_source_labels(answer: str, valid_labels: list[str]) -> list[str]:
+    positioned = [
+        (answer.find(f"[{label}]"), label)
+        for label in valid_labels
+        if f"[{label}]" in answer
+    ]
+    return [label for _, label in sorted(positioned)]
+
+
+def uncited_list_items(
+    answer: str,
+    valid_labels: list[str],
+) -> list[str]:
+    citation_tokens = [f"[{label}]" for label in valid_labels]
+    return [
+        line.strip()
+        for line in answer.splitlines()
+        if re.match(r"^\s*(?:\d+[.)]|[-*])\s+\S", line)
+        and not any(token in line for token in citation_tokens)
+    ]
+
+
+def canonicalize_draft_citations(
+    draft: DraftAnswer,
+    evidence: str,
+) -> DraftAnswer:
+    valid_labels = evidence_source_labels(evidence)
+    valid_set = set(valid_labels)
+    source_passages = passages_by_source(evidence)
+    aliases: dict[str, str] = {}
+    for source_label, passages in source_passages.items():
+        for passage in passages:
+            for alias in re.findall(r"\[Source: ([^\]]+)\]", passage):
+                aliases.setdefault(alias.strip(), source_label)
+
+    answer = draft.answer
+    for label in sorted(valid_labels, key=len, reverse=True):
+        answer = answer.replace(f"[Source: {label}]", f"[{label}]")
+    for alias, label in aliases.items():
+        answer = answer.replace(f"[Source: {alias}]", f"[{label}]")
+
+    inline_labels = inline_source_labels(answer, valid_labels)
+
+    declared_labels: list[str] = []
+    for raw_citation in draft.citations:
+        citation = raw_citation.strip()
+        if citation.startswith("[") and citation.endswith("]"):
+            citation = citation[1:-1].strip()
+        if citation.startswith("Source:"):
+            citation = citation.removeprefix("Source:").strip()
+        citation = aliases.get(citation, citation)
+        if citation in valid_set:
+            declared_labels.append(citation)
+
+    canonical = inline_labels or list(dict.fromkeys(declared_labels))
+    return draft.model_copy(
+        update={
+            "answer": answer,
+            "citations": canonical,
+        }
+    )
+
+
+def safe_source_part(value: object, fallback: str) -> str:
+    cleaned = normalize_evidence_text(str(value or fallback))
+    return cleaned.replace("[", "(").replace("]", ")")[:160]
 
 
 def audit_quote_matches_source(
@@ -53,10 +182,27 @@ def audit_quote_matches_source(
     quote = normalize_evidence_text(audit.evidence_quote)
     if not quote:
         return False
-    return any(
-        quote in passage
-        for passage in source_passages.get(audit.source_label, [])
-    )
+    passages = source_passages.get(audit.source_label, [])
+    if any(quote in passage for passage in passages):
+        return True
+
+    quote_fragments = [
+        normalize_evidence_text(fragment)
+        for fragment in re.split(r"(?:\.{3}|…)", quote)
+        if normalize_evidence_text(fragment)
+    ]
+    if len(quote_fragments) < 2:
+        return False
+    for passage in passages:
+        cursor = 0
+        for fragment in quote_fragments:
+            position = passage.find(fragment, cursor)
+            if position < 0:
+                break
+            cursor = position + len(fragment)
+        else:
+            return True
+    return False
 
 
 class SupportFlowWorkflow:
@@ -84,13 +230,14 @@ class SupportFlowWorkflow:
             api_key=self.settings.openrouter_key,
             model=generator_model,
             temperature=0.2,
-            max_completion_tokens=1_000,
+            max_completion_tokens=MAX_COMPLETION_TOKENS,
         )
         validator_llm = ChatOpenAI(
             base_url=self.settings.openrouter_base_url,
             api_key=self.settings.openrouter_key,
             model=validator_model,
             temperature=0.0,
+            max_completion_tokens=MAX_COMPLETION_TOKENS,
         )
 
         generator_agent = generator_llm.with_structured_output(
@@ -125,31 +272,50 @@ class SupportFlowWorkflow:
 
     def retrieve_node(self, state: AgentState) -> dict:
         visibility = state.get("user_visibility", "public")
-        prior_question = previous_user_question(state)
-        retrieval_query = state["question"]
-        if prior_question:
-            retrieval_query = (
-                f"Previous user question: {prior_question}\n"
-                f"Current follow-up question: {state['question']}"
-            )
+        retrieval_query = build_retrieval_query(state)
 
         query_embedding = self.embedding_model.embed_query(retrieval_query)
         selected = self.repository.similarity_search(
             workspace_id=UUID(state["workspace_id"]),
             query_embedding=query_embedding,
             visibility=visibility,
-            limit=5,
+            limit=6,
         )
 
         passages: list[str] = []
         chunk_ids: list[str] = []
+        seen_chunks: set[str] = set()
         for chunk in selected:
             metadata = chunk.get("metadata") or {}
-            label = (
-                f"Handbook v2.0, p. {metadata.get('page_number', '?')}, "
-                f"{metadata.get('section_title', 'Unknown section')}"
+            content = str(chunk.get("content") or "").strip()
+            if not content:
+                continue
+            fingerprint = normalize_evidence_text(content)
+            if fingerprint in seen_chunks:
+                continue
+            seen_chunks.add(fingerprint)
+
+            document = safe_source_part(
+                metadata.get("document"),
+                "Uploaded support document",
             )
-            passages.append(f"[Source: {label}]\n{chunk['content']}")
+            page_number = safe_source_part(
+                metadata.get("page_number"),
+                "?",
+            )
+            section_title = safe_source_part(
+                extract_section_title(
+                    content,
+                    str(metadata.get("section_title") or "Unknown section"),
+                ),
+                "Unknown section",
+            )
+            label = (
+                f"{document}, p. {page_number}, {section_title}"
+            )
+            passages.append(
+                f"[Retrieved source label: {label}]\n{content}"
+            )
             chunk_ids.append(str(chunk["id"]))
 
         return {
@@ -164,17 +330,18 @@ class SupportFlowWorkflow:
             state["generator_model"],
             state["validator_model"],
         )
+        evidence = "\n\n".join(state["retrieved_passages"])
         draft = generator_chain.invoke(
             {
                 "question": state["question"],
                 "history": format_conversation_history(state),
-                "evidence": "\n\n".join(state["retrieved_passages"]),
+                "evidence": evidence or "(no relevant evidence was retrieved)",
                 "agent_name": state["agent_name"],
                 "agent_type": state["agent_type"],
                 "agent_system_prompt": state.get("agent_system_prompt", ""),
             }
         )
-        return {"draft": draft}
+        return {"draft": canonicalize_draft_citations(draft, evidence)}
 
     def validate_node(self, state: AgentState) -> dict:
         _, validator_chain, _ = self._chains(
@@ -186,16 +353,20 @@ class SupportFlowWorkflow:
             {
                 "question": state["question"],
                 "history": format_conversation_history(state),
-                "evidence": evidence,
-                "draft": state["draft"].model_dump_json(indent=2),
+                "evidence": evidence or "(no relevant evidence was retrieved)",
+                "answer": state["draft"].answer,
+                "citations": (
+                    "\n".join(state["draft"].citations) or "(none)"
+                ),
             }
         )
 
-        evidence_labels = set(re.findall(r"\[Source: ([^\]]+)\]", evidence))
+        ordered_evidence_labels = evidence_source_labels(evidence)
+        evidence_labels = set(ordered_evidence_labels)
         declared_citations = state["draft"].citations
-        inline_citations = re.findall(
-            r"\[(Handbook v2\.0, p\. \d+, [^\]]+)\]",
+        inline_citations = inline_source_labels(
             state["draft"].answer,
+            ordered_evidence_labels,
         )
         invalid_citations = [
             citation
@@ -212,6 +383,10 @@ class SupportFlowWorkflow:
             for citation in inline_citations
             if citation not in declared_citations
         ]
+        uncited_items = uncited_list_items(
+            state["draft"].answer,
+            ordered_evidence_labels,
+        )
         failed_audits = [
             audit.claim for audit in result.claim_audits if not audit.supported
         ]
@@ -233,6 +408,7 @@ class SupportFlowWorkflow:
             or invalid_citations
             or missing_inline
             or undeclared_inline
+            or uncited_items
         )
         audit_problems = bool(
             not result.claim_audits
@@ -246,31 +422,26 @@ class SupportFlowWorkflow:
             if not declared_citations:
                 problems.append("declare at least one supporting citation")
             if invalid_citations:
-                problems.append(
-                    f"remove citations not present in evidence: {invalid_citations}"
-                )
+                problems.append("use only exact retrieved source labels")
             if missing_inline:
-                problems.append(
-                    f"place these citations in the answer: {missing_inline}"
-                )
+                problems.append("place every declared citation inline")
             if undeclared_inline:
+                problems.append("declare every inline source label")
+            if uncited_items:
                 problems.append(
-                    f"declare these inline citations: {undeclared_inline}"
+                    "add an exact inline source label to every factual list item"
                 )
             if not result.claim_audits:
                 problems.append("audit every atomic factual claim")
             if failed_audits:
                 problems.append(
-                    f"remove or correct unsupported claims: {failed_audits}"
+                    "remove or correct unsupported claims: "
+                    + "; ".join(failed_audits[:4])
                 )
             if invalid_audit_sources:
-                problems.append(
-                    f"use supplied source labels: {invalid_audit_sources}"
-                )
+                problems.append("use exact source labels in claim audits")
             if invalid_audit_quotes:
-                problems.append(
-                    f"provide exact retrieved evidence: {invalid_audit_quotes}"
-                )
+                problems.append("use exact contiguous evidence quotes")
             result = result.model_copy(
                 update={
                     "verdict": "revise",
@@ -289,15 +460,12 @@ class SupportFlowWorkflow:
 
         if (
             result.verdict == "revise"
-            and state.get("revision_count", 0) >= 1
+            and state.get("revision_count", 0) >= MAX_REVISIONS
         ):
             result = result.model_copy(
                 update={
                     "verdict": "escalate",
-                    "feedback": (
-                        result.feedback
-                        + " The single permitted revision was already used."
-                    ),
+                    "feedback": "The answer remained unverified after revision.",
                 }
             )
         return {"validation": result}
@@ -307,17 +475,21 @@ class SupportFlowWorkflow:
             state["generator_model"],
             state["validator_model"],
         )
+        evidence = "\n\n".join(state["retrieved_passages"])
         revised = refiner_chain.invoke(
             {
                 "question": state["question"],
                 "history": format_conversation_history(state),
-                "evidence": "\n\n".join(state["retrieved_passages"]),
-                "draft": state["draft"].model_dump_json(indent=2),
-                "feedback": state["validation"].feedback,
+                "evidence": evidence or "(no relevant evidence was retrieved)",
+                "answer": state["draft"].answer,
+                "citations": (
+                    "\n".join(state["draft"].citations) or "(none)"
+                ),
+                "feedback": state["validation"].feedback[:1_500],
             }
         )
         return {
-            "draft": revised,
+            "draft": canonicalize_draft_citations(revised, evidence),
             "revision_count": state.get("revision_count", 0) + 1,
         }
 
@@ -328,14 +500,14 @@ class SupportFlowWorkflow:
             final = state["draft"].answer
         elif verdict == "refuse":
             final = (
-                "I can't help with that request safely. "
-                f"{state['validation'].feedback}"
+                "I can’t help with that request because it would conflict "
+                "with security or privacy requirements."
             )
         else:
             final = (
-                "I can't verify or complete this request from handbook "
-                "evidence alone. It needs an authorized tool or human review. "
-                f"Reason: {state['validation'].feedback}"
+                "I couldn’t verify a complete answer from the available "
+                "support document. Please ask an authorized support team "
+                "member to review this request."
             )
         completed_turn = {
             "question": state["question"],
@@ -344,7 +516,10 @@ class SupportFlowWorkflow:
         }
         return {
             "final_answer": final,
-            "conversation_history": [completed_turn],
+            "conversation_history": (
+                state.get("conversation_history", [])[-2:]
+                + [completed_turn]
+            ),
         }
 
     @staticmethod

@@ -33,6 +33,17 @@ class ChatService:
             request.question,
             request.agent_type,
         )
+        if (
+            request.conversation_id is not None
+            and request.agent_type is None
+            and agent_type == "general"
+        ):
+            previous_agent_type = await self.conversation_store.get_agent_type(
+                mongo_user_id=user.id,
+                conversation_id=conversation_id,
+            )
+            if previous_agent_type is not None:
+                agent_type = previous_agent_type
 
         await self.conversation_store.ensure_conversation(
             mongo_user_id=user.id,
@@ -73,7 +84,11 @@ class ChatService:
         )
 
         draft = result.get("draft")
-        citations = draft.citations if draft else []
+        citations = (
+            draft.citations
+            if draft and result["validation"].verdict == "pass"
+            else []
+        )
         await self.conversation_store.append_message(
             conversation_id=conversation_id,
             role="assistant",

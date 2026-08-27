@@ -1,5 +1,4 @@
-import operator
-from typing import Annotated, Literal, TypedDict
+from typing import Literal, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -12,7 +11,10 @@ class DraftAnswer(BaseModel):
         description="Concise customer-facing answer with inline handbook citations."
     )
     citations: list[str] = Field(
-        description="Exact source labels used in the answer."
+        description=(
+            "Exact retrieved source labels used inline in the answer. "
+            "Each item is a label only, without brackets, claims, or quotes."
+        )
     )
     requires_human_review: bool
     uncertainty: str = Field(
@@ -35,7 +37,7 @@ class ClaimAudit(BaseModel):
         )
     )
     reason: str = Field(
-        description="Why the evidence does or does not support the full claim."
+        description="A short reason the evidence supports or does not support the claim."
     )
 
 
@@ -68,7 +70,7 @@ class AgentState(TypedDict, total=False):
     generator_model: str
     validator_model: str
     user_visibility: Visibility
-    conversation_history: Annotated[list[dict[str, str]], operator.add]
+    conversation_history: list[dict[str, str]]
     retrieval_query: str
     retrieved_passages: list[str]
     retrieved_chunk_ids: list[str]

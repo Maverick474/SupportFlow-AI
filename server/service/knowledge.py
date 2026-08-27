@@ -20,6 +20,30 @@ from models.chat import AgentType, KnowledgeIngestResponse, Visibility
 GENERATOR_MODEL = "openai/gpt-4o-mini"
 VALIDATOR_MODEL = "openai/gpt-4.1-mini"
 
+
+def extract_section_title(
+    text: str,
+    fallback: str = "SupportFlow Knowledge Document",
+) -> str:
+    cite_match = re.search(
+        r"(?im)^Cite:\s*[^,\n]+,\s*p\.\s*[^,\n]+,\s*(.+?)\s*$",
+        text,
+    )
+    if cite_match:
+        return re.sub(r"\s+", " ", cite_match.group(1)).strip()[:160]
+
+    candidates = [
+        re.sub(r"\s+", " ", line).strip(" -:#")
+        for line in text.splitlines()
+        if re.sub(r"\s+", " ", line).strip(" -:#")
+    ]
+    if len(candidates) > 1 and candidates[0].isupper():
+        return candidates[1].replace("[", "(").replace("]", ")")[:160]
+    if candidates:
+        return candidates[0].replace("[", "(").replace("]", ")")[:160]
+    return fallback
+
+
 def create_embedding_model(settings: Settings) -> OpenAIEmbeddings:
     """Create the notebook's OpenRouter embedding client."""
     return OpenAIEmbeddings(
@@ -181,12 +205,7 @@ class KnowledgeIngestionService:
 
     @staticmethod
     def _section_title(text: str) -> str:
-        for line in text.splitlines():
-            candidate = re.sub(r"\s+", " ", line).strip(" -:#")
-            candidate = candidate.replace("[", "(").replace("]", ")")
-            if candidate and not candidate.isdigit():
-                return candidate[:160]
-        return "SupportFlow Knowledge Document"
+        return extract_section_title(text)
 
     @traceable(name="supportflow.knowledge-upload", run_type="chain")
     def ingest_uploaded_pdf(

@@ -58,6 +58,24 @@ class ConversationStore:
             {str(conversation_id): now.timestamp()},
         )
 
+    async def get_agent_type(
+        self,
+        *,
+        mongo_user_id: str,
+        conversation_id: UUID,
+    ) -> AgentType | None:
+        metadata = await self.redis.hgetall(
+            self._metadata_key(conversation_id)
+        )
+        if not metadata:
+            return None
+        if metadata.get("mongo_user_id") != mongo_user_id:
+            raise ConversationOwnershipError(
+                "The conversation does not belong to this user."
+            )
+        agent_type = metadata.get("agent_type")
+        return agent_type if agent_type else None
+
     async def append_message(
         self,
         *,
