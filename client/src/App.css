@@ -727,6 +727,97 @@ select:focus-visible {
 .toolbar-label { color: var(--muted); font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
 .chat-toolbar select { height: 31px; padding: 0 27px 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); color: var(--ink); font-size: 11px; font-weight: 700; }
 .thread-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; }
+.toolbar-actions { display: flex; align-items: center; gap: 16px; }
+.knowledge-upload-button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid #abd7c6;
+  border-radius: 8px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-size: 10px;
+  font-weight: 780;
+}
+.knowledge-upload-button:hover { border-color: var(--green); background: #ddf1e8; }
+.knowledge-upload-button > span { font-size: 16px; line-height: 1; }
+.knowledge-upload-button small { color: var(--muted); font-size: 10px; }
+.knowledge-upload-button.locked { border-color: var(--line); background: var(--surface-soft); color: var(--ink-soft); }
+
+.upload-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 25, 20, .58);
+  backdrop-filter: blur(4px);
+}
+.upload-modal {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 26px 80px rgba(5, 22, 17, .28);
+}
+.upload-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 25px 27px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.upload-modal-header h2 { margin: 7px 0 0; color: var(--ink); font-size: 22px; letter-spacing: -.5px; }
+.upload-modal-header > button { width: 31px; height: 31px; border: 0; border-radius: 8px; background: var(--surface-soft); color: var(--muted); font-size: 16px; }
+.upload-form { display: grid; gap: 16px; padding: 22px 27px 25px; }
+.upload-form > p { color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.pdf-dropzone {
+  position: relative;
+  min-height: 112px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 19px;
+  border: 1px dashed #a9c9bd;
+  border-radius: 13px;
+  background: #f5faf8;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.pdf-dropzone:hover { border-color: var(--green); background: #eff8f4; }
+.pdf-dropzone.selected { border-style: solid; border-color: #82bea8; }
+.pdf-dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.pdf-file-icon { width: 46px; height: 56px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 9px; background: #dcefe7; color: var(--green-dark); font-size: 10px; font-weight: 850; letter-spacing: .04em; }
+.pdf-file-copy { min-width: 0; flex: 1; }
+.pdf-file-copy strong, .pdf-file-copy small { display: block; }
+.pdf-file-copy strong { overflow: hidden; color: var(--ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pdf-file-copy small { margin-top: 5px; color: var(--muted); font-size: 10px; }
+.pdf-dropzone > b { color: var(--green-dark); font-size: 10px; }
+.upload-details { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.upload-details > span { padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: 9px; }
+.upload-details strong { display: block; margin-top: 2px; color: var(--ink); font-size: 10px; }
+.replace-checkbox { display: flex; align-items: flex-start; gap: 10px; color: var(--ink-soft); cursor: pointer; }
+.replace-checkbox input { margin-top: 3px; accent-color: var(--green); }
+.replace-checkbox span { min-width: 0; }
+.replace-checkbox strong, .replace-checkbox small { display: block; }
+.replace-checkbox strong { color: var(--ink); font-size: 10px; }
+.replace-checkbox small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.upload-alert { display: grid; gap: 3px; padding: 11px 13px; border-radius: 9px; font-size: 10px; }
+.upload-alert.error { border: 1px solid #f0c3c3; background: #fff4f4; color: var(--red); }
+.upload-alert.success { border: 1px solid #b9dfd0; background: #edf8f3; color: var(--green-dark); }
+.upload-alert.success strong { font-size: 11px; }
+.upload-modal-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 4px; }
+.upload-modal-actions button { min-width: 104px; height: 38px; border-radius: 8px; font-size: 10px; font-weight: 760; }
+.upload-cancel-button { border: 1px solid var(--line); background: white; color: var(--ink-soft); }
+.upload-submit-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--green); background: var(--green); color: white; }
+.upload-submit-button:disabled, .upload-cancel-button:disabled { cursor: not-allowed; opacity: .5; }
+
 
 .chat-panel { min-height: 0; flex: 1; display: flex; flex-direction: column; background: var(--surface-soft); }
 .messages-region { min-height: 0; flex: 1; overflow-y: auto; scroll-behavior: smooth; }

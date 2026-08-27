@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic-settings
 python-dotenv
+python-multipart
 PyJWT
 pwdlib[argon2]
 email-validator

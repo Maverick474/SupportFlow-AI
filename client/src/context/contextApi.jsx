@@ -102,7 +102,9 @@ export function SupportFlowProvider({ children }) {
     async (path, options = {}, retryAfterRefresh = true) => {
       const sendRequest = () => {
         const headers = new Headers(options.headers || {})
-        if (options.body && !headers.has('Content-Type')) {
+        const isFormData =
+          typeof FormData !== 'undefined' && options.body instanceof FormData
+        if (options.body && !isFormData && !headers.has('Content-Type')) {
           headers.set('Content-Type', 'application/json')
         }
         if (accessTokenRef.current) {
@@ -213,6 +215,23 @@ export function SupportFlowProvider({ children }) {
     [apiRequest, loadConversations],
   )
 
+  const uploadKnowledge = useCallback(
+    async ({ file, agentType, replaceExisting = true }) => {
+      const body = new FormData()
+      body.append('file', file)
+      if (agentType && agentType !== 'auto') {
+        body.append('agent_type', agentType)
+      }
+      body.append('replace_existing', String(replaceExisting))
+
+      return apiRequest('/knowledge/upload', {
+        method: 'POST',
+        body,
+      })
+    },
+    [apiRequest],
+  )
+
   useEffect(() => {
     let cancelled = false
 
@@ -271,6 +290,7 @@ export function SupportFlowProvider({ children }) {
       loadConversations,
       loadMessages,
       sendMessage,
+      uploadKnowledge,
     }),
     [
       user,
@@ -284,6 +304,7 @@ export function SupportFlowProvider({ children }) {
       loadConversations,
       loadMessages,
       sendMessage,
+      uploadKnowledge,
     ],
   )
 

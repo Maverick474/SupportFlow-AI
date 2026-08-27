@@ -1,6 +1,7 @@
 """Knowledge ingestion, vector retrieval, and agent-run storage in Supabase."""
 
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -206,8 +207,61 @@ class KnowledgeIngestionService:
                 f"Knowledge handbook was not found at {DEFAULT_HANDBOOK}."
             )
 
-        pages = PyPDFLoader(str(DEFAULT_HANDBOOK)).load()
-        document_name = DEFAULT_HANDBOOK.name
+        return self._ingest_pdf(
+            pdf_path=DEFAULT_HANDBOOK,
+            document_name=DEFAULT_HANDBOOK.name,
+            workspace_id=workspace_id,
+            agent_type=agent_type,
+            replace_existing=replace_existing,
+        )
+
+    @traceable(name="supportflow.knowledge-upload", run_type="chain")
+    def ingest_uploaded_pdf(
+        self,
+        *,
+        workspace_id: UUID,
+        document_name: str,
+        pdf_bytes: bytes,
+        agent_type: AgentType | None,
+        replace_existing: bool,
+    ) -> KnowledgeIngestResponse:
+        """Ingest a PDF uploaded by an authenticated workspace member."""
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+                temp_file.write(pdf_bytes)
+                temporary_path = Path(temp_file.name)
+
+            return self._ingest_pdf(
+                pdf_path=temporary_path,
+                document_name=document_name,
+                workspace_id=workspace_id,
+                agent_type=agent_type,
+                replace_existing=replace_existing,
+            )
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
+    def _ingest_pdf(
+        self,
+        *,
+        pdf_path: Path,
+        document_name: str,
+        workspace_id: UUID,
+        agent_type: AgentType | None,
+        replace_existing: bool,
+    ) -> KnowledgeIngestResponse:
+        try:
+            pages = PyPDFLoader(str(pdf_path)).load()
+        except Exception as exc:
+            raise ValueError(
+                "The uploaded file could not be read as a PDF."
+            ) from exc
+
+        if not pages:
+            raise ValueError("The PDF does not contain any readable pages.")
+
         for page_number, page in enumerate(pages, start=1):
             page.metadata.update(
                 {

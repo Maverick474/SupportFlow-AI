@@ -12,6 +12,7 @@ const AGENT_OPTIONS = [
   { value: 'policy', label: 'Policy' },
 ]
 
+const MAX_PDF_BYTES = 20 * 1024 * 1024
 const STARTER_QUESTIONS = [
   {
     label: 'Account access',
@@ -39,6 +40,13 @@ function formatConversationTime(value) {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
+function formatFileSize(bytes) {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 function agentLabel(agentType) {
   return AGENT_OPTIONS.find((agent) => agent.value === agentType)?.label || 'General'
 }
@@ -51,6 +59,7 @@ export default function Main({ onNavigate }) {
     loadConversations,
     loadMessages,
     sendMessage,
+    uploadKnowledge,
   } = useSupportFlow()
 
   const [selectedConversation, setSelectedConversation] = useState(null)
@@ -62,9 +71,18 @@ export default function Main({ onNavigate }) {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploadFile, setUploadFile] = useState(null)
+  const [replaceExisting, setReplaceExisting] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const [uploadResult, setUploadResult] = useState(null)
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
+  const uploadInputRef = useRef(null)
   const messageIdRef = useRef(0)
+
+  const canManageKnowledge = ['owner', 'admin'].includes(user?.role)
 
   useEffect(() => {
     loadConversations().catch((requestError) => setError(requestError.message))
@@ -173,6 +191,67 @@ export default function Main({ onNavigate }) {
     }
   }
 
+  function openUploadDialog() {
+    if (!canManageKnowledge) {
+      setError('Only a workspace owner or admin can upload knowledge documents.')
+      return
+    }
+    setUploadError('')
+    setUploadResult(null)
+    setUploadFile(null)
+    if (uploadInputRef.current) uploadInputRef.current.value = ''
+    setUploadOpen(true)
+  }
+
+  function closeUploadDialog() {
+    if (!uploading) setUploadOpen(false)
+  }
+
+  function handleUploadFileChange(event) {
+    const selectedFile = event.target.files?.[0] || null
+    setUploadError('')
+    setUploadResult(null)
+
+    if (!selectedFile) {
+      setUploadFile(null)
+      return
+    }
+    if (!selectedFile.name.toLowerCase().endsWith('.pdf')) {
+      setUploadError('Please choose a PDF document.')
+      setUploadFile(null)
+      event.target.value = ''
+      return
+    }
+    if (selectedFile.size > MAX_PDF_BYTES) {
+      setUploadError('The PDF must be 20 MB or smaller.')
+      setUploadFile(null)
+      event.target.value = ''
+      return
+    }
+    setUploadFile(selectedFile)
+  }
+
+  async function submitKnowledgeUpload(event) {
+    event.preventDefault()
+    if (!uploadFile || uploading) return
+
+    setUploadError('')
+    setUploadResult(null)
+    setUploading(true)
+    try {
+      const result = await uploadKnowledge({
+        file: uploadFile,
+        agentType,
+        replaceExisting,
+      })
+      setUploadResult(result)
+    } catch (requestError) {
+      setUploadError(requestError.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const activeConversation = conversations.find(
     (conversation) => conversation.conversation_id === selectedConversation,
   )
@@ -261,9 +340,21 @@ export default function Main({ onNavigate }) {
               {AGENT_OPTIONS.map((agent) => <option value={agent.value} key={agent.value}>{agent.label}</option>)}
             </select>
           </div>
-          <div className="thread-status">
-            <span className="status-dot online" />
-            {activeConversation ? 'Conversation saved in Redis' : 'Ready for a new question'}
+          <div className="toolbar-actions">
+            <button
+              type="button"
+              className={`knowledge-upload-button ${canManageKnowledge ? '' : 'locked'}`}
+              onClick={openUploadDialog}
+              title={canManageKnowledge ? 'Upload a PDF to the workspace knowledge base' : 'Owner or admin access is required'}
+            >
+              <span aria-hidden="true">↑</span>
+              Upload PDF
+              {!canManageKnowledge && <small>Admin</small>}
+            </button>
+            <div className="thread-status">
+              <span className="status-dot online" />
+              {activeConversation ? 'Conversation saved in Redis' : 'Ready for a new question'}
+            </div>
           </div>
         </div>
 
@@ -358,6 +449,89 @@ export default function Main({ onNavigate }) {
           </div>
         </main>
       </section>
+      {uploadOpen && (
+        <div className="upload-modal-backdrop" onMouseDown={closeUploadDialog}>
+          <section
+            className="upload-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="upload-modal-header">
+              <div>
+                <span className="eyebrow"><span /> Knowledge base</span>
+                <h2 id="upload-dialog-title">Upload a PDF document</h2>
+              </div>
+              <button type="button" onClick={closeUploadDialog} disabled={uploading} aria-label="Close upload dialog">x</button>
+            </header>
+
+            <form className="upload-form" onSubmit={submitKnowledgeUpload}>
+              <p>
+                SupportFlow will extract, chunk, embed, and save this document
+                as searchable knowledge for your workspace.
+              </p>
+
+              <label className={`pdf-dropzone ${uploadFile ? 'selected' : ''}`}>
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  onChange={handleUploadFileChange}
+                  disabled={uploading || Boolean(uploadResult)}
+                />
+                <span className="pdf-file-icon" aria-hidden="true">PDF</span>
+                <span className="pdf-file-copy">
+                  <strong>{uploadFile ? uploadFile.name : 'Choose a PDF from your device'}</strong>
+                  <small>
+                    {uploadFile
+                      ? `${formatFileSize(uploadFile.size)} selected`
+                      : 'PDF only, maximum file size 20 MB'}
+                  </small>
+                </span>
+                {!uploadResult && <b>{uploadFile ? 'Change' : 'Browse'}</b>}
+              </label>
+
+              <div className="upload-details">
+                <span>Knowledge scope <strong>{agentType === 'auto' ? 'All agents' : `${agentLabel(agentType)} agent`}</strong></span>
+                <span>Storage <strong>Supabase vectors</strong></span>
+              </div>
+
+              <label className="replace-checkbox">
+                <input
+                  type="checkbox"
+                  checked={replaceExisting}
+                  onChange={(event) => setReplaceExisting(event.target.checked)}
+                  disabled={uploading || Boolean(uploadResult)}
+                />
+                <span>
+                  <strong>Replace an existing document with the same filename</strong>
+                  <small>Prevents duplicate chunks when uploading a newer version.</small>
+                </span>
+              </label>
+
+              {uploadError && <div className="upload-alert error" role="alert">{uploadError}</div>}
+              {uploadResult && (
+                <div className="upload-alert success" role="status">
+                  <strong>{uploadResult.document} is ready.</strong>
+                  <span>{uploadResult.pages} pages produced {uploadResult.chunks} searchable chunks.</span>
+                </div>
+              )}
+
+              <footer className="upload-modal-actions">
+                <button type="button" className="upload-cancel-button" onClick={closeUploadDialog} disabled={uploading}>
+                  {uploadResult ? 'Close' : 'Cancel'}
+                </button>
+                {!uploadResult && (
+                  <button type="submit" className="upload-submit-button" disabled={!uploadFile || uploading}>
+                    {uploading ? <><span className="spinner" /> Processing PDF</> : 'Upload and index'}
+                  </button>
+                )}
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   )
 }
