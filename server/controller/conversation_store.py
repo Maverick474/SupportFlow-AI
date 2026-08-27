@@ -135,6 +135,78 @@ class ConversationStore:
             )
         return conversations
 
+    async def rename_conversation(
+        self,
+        *,
+        mongo_user_id: str,
+        conversation_id: UUID,
+        title: str,
+    ) -> ConversationSummary:
+        metadata_key = self._metadata_key(conversation_id)
+        metadata = await self.redis.hgetall(metadata_key)
+        if (
+            not metadata
+            or metadata.get("mongo_user_id") != mongo_user_id
+        ):
+            raise ConversationOwnershipError(
+                "Conversation was not found for this user."
+            )
+
+        now = datetime.now(UTC)
+        await self.redis.hset(
+            metadata_key,
+            mapping={
+                "title": title,
+                "updated_at": now.isoformat(),
+            },
+        )
+        await self.redis.zadd(
+            self._user_conversations_key(mongo_user_id),
+            {str(conversation_id): now.timestamp()},
+        )
+        return ConversationSummary(
+            conversation_id=conversation_id,
+            title=title,
+            agent_type=metadata.get("agent_type", "general"),
+            updated_at=now,
+        )
+
+    async def delete_conversation(
+        self,
+        *,
+        mongo_user_id: str,
+        conversation_id: UUID,
+    ) -> None:
+        metadata_key = self._metadata_key(conversation_id)
+        metadata = await self.redis.hgetall(metadata_key)
+        if (
+            not metadata
+            or metadata.get("mongo_user_id") != mongo_user_id
+        ):
+            raise ConversationOwnershipError(
+                "Conversation was not found for this user."
+            )
+
+        thread_fragment = f"{mongo_user_id}:{conversation_id}"
+        checkpoint_keys = [
+            key
+            async for key in self.redis.scan_iter(
+                match=f"*{thread_fragment}*",
+                count=100,
+            )
+        ]
+
+        pipeline = self.redis.pipeline()
+        pipeline.delete(metadata_key)
+        pipeline.delete(self._messages_key(conversation_id))
+        pipeline.zrem(
+            self._user_conversations_key(mongo_user_id),
+            str(conversation_id),
+        )
+        for key in checkpoint_keys:
+            pipeline.delete(key)
+        await pipeline.execute()
+
     async def get_messages(
         self,
         *,

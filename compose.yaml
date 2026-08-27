@@ -31,6 +31,28 @@ services:
       retries: 10
       start_period: 5s
 
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5679:5678"
+    environment:
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_RUNNERS_MODE: external
+      N8N_RUNNERS_BROKER_LISTEN_ADDRESS: 0.0.0.0
+      N8N_RUNNERS_AUTH_TOKEN: my-secret-runner-token
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  n8n-runner:
+    image: n8nio/runners:latest
+    restart: unless-stopped
+    environment:
+      N8N_RUNNERS_TASK_BROKER_URI: http://n8n:5679
+      N8N_RUNNERS_AUTH_TOKEN: my-secret-runner-token
+    depends_on:
+      - n8n
+
   server:
     build:
       context: ./server
@@ -95,3 +117,6 @@ services:
 volumes:
   mongodb_data:
   redis_data:
+  n8n_data:
+    external: true
+    name: week5_n8n_data

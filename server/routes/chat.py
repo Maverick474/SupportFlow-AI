@@ -11,6 +11,7 @@ from models.chat import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    ConversationRenameRequest,
     ConversationSummary,
 )
 
@@ -46,6 +47,50 @@ async def list_conversations(
         mongo_user_id=user.id,
         limit=limit,
     )
+
+
+@router.patch(
+    "/conversations/{conversation_id}",
+    response_model=ConversationSummary,
+)
+async def rename_conversation(
+    conversation_id: UUID,
+    request: ConversationRenameRequest,
+    user: UserPublic = Depends(get_current_user),
+    resources: AppResources = Depends(get_resources),
+) -> ConversationSummary:
+    try:
+        return await resources.conversation_store.rename_conversation(
+            mongo_user_id=user.id,
+            conversation_id=conversation_id,
+            title=request.title,
+        )
+    except ConversationOwnershipError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_conversation(
+    conversation_id: UUID,
+    user: UserPublic = Depends(get_current_user),
+    resources: AppResources = Depends(get_resources),
+) -> None:
+    try:
+        await resources.conversation_store.delete_conversation(
+            mongo_user_id=user.id,
+            conversation_id=conversation_id,
+        )
+    except ConversationOwnershipError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get(

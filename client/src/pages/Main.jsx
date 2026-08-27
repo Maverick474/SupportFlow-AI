@@ -94,6 +94,8 @@ export default function Main({ onNavigate }) {
     conversationsLoading,
     loadConversations,
     loadMessages,
+    renameConversation,
+    deleteConversation,
     sendMessage,
     uploadKnowledge,
   } = useSupportFlow()
@@ -117,6 +119,9 @@ export default function Main({ onNavigate }) {
   const textareaRef = useRef(null)
   const uploadInputRef = useRef(null)
   const messageIdRef = useRef(0)
+  const [editingConversationId, setEditingConversationId] = useState(null)
+  const [renameTitle, setRenameTitle] = useState('')
+  const [conversationActionId, setConversationActionId] = useState(null)
 
   const canManageKnowledge = ['owner', 'admin'].includes(user?.role)
 
@@ -173,6 +178,64 @@ export default function Main({ onNavigate }) {
     setSelectedConversation(conversation.conversation_id)
     setAgentType(conversation.agent_type || 'auto')
     setSidebarOpen(false)
+  }
+
+  function startRenamingConversation(event, conversation) {
+    event.stopPropagation()
+    if (conversationActionId) return
+    setEditingConversationId(conversation.conversation_id)
+    setRenameTitle(conversation.title)
+  }
+
+  function cancelRenamingConversation() {
+    setEditingConversationId(null)
+    setRenameTitle('')
+  }
+
+  async function submitConversationRename(event, conversation) {
+    event.preventDefault()
+    const title = renameTitle.trim()
+    if (!title || conversationActionId) return
+    if (title === conversation.title) {
+      cancelRenamingConversation()
+      return
+    }
+
+    setError('')
+    setConversationActionId(conversation.conversation_id)
+    try {
+      await renameConversation(conversation.conversation_id, title)
+      cancelRenamingConversation()
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setConversationActionId(null)
+    }
+  }
+
+  async function handleConversationDelete(event, conversation) {
+    event.stopPropagation()
+    if (conversationActionId || sending) return
+    const confirmed = window.confirm(
+      'Delete "' + conversation.title + '" and its chat history? This cannot be undone.',
+    )
+    if (!confirmed) return
+
+    setError('')
+    setConversationActionId(conversation.conversation_id)
+    try {
+      await deleteConversation(conversation.conversation_id)
+      if (selectedConversation === conversation.conversation_id) {
+        beginNewConversation()
+      }
+      if (editingConversationId === conversation.conversation_id) {
+        cancelRenamingConversation()
+      }
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setConversationActionId(null)
+    }
   }
 
   async function submitQuestion(event, suggestedQuestion, suggestedAgent) {
@@ -338,18 +401,85 @@ export default function Main({ onNavigate }) {
             <div className="conversation-skeletons"><span /><span /><span /></div>
           ) : filteredConversations.length > 0 ? (
             filteredConversations.map((conversation) => (
-              <button
-                type="button"
+              <div
                 key={conversation.conversation_id}
-                className={selectedConversation === conversation.conversation_id ? 'conversation-item active' : 'conversation-item'}
-                onClick={() => openConversation(conversation)}
+                className={
+                  selectedConversation === conversation.conversation_id
+                    ? 'conversation-item-shell active'
+                    : 'conversation-item-shell'
+                }
               >
-                <span className="conversation-icon" aria-hidden="true">◎</span>
-                <span className="conversation-copy">
-                  <strong>{conversation.title}</strong>
-                  <small>{agentLabel(conversation.agent_type)} · {formatConversationTime(conversation.updated_at)}</small>
-                </span>
-              </button>
+                {editingConversationId === conversation.conversation_id ? (
+                  <form
+                    className="conversation-rename-form"
+                    onSubmit={(event) => submitConversationRename(event, conversation)}
+                  >
+                    <input
+                      autoFocus
+                      type="text"
+                      maxLength={80}
+                      value={renameTitle}
+                      onChange={(event) => setRenameTitle(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') cancelRenamingConversation()
+                      }}
+                      aria-label="Conversation name"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!renameTitle.trim() || conversationActionId === conversation.conversation_id}
+                      aria-label="Save conversation name"
+                      title="Save"
+                    >
+                      {conversationActionId === conversation.conversation_id ? '…' : '✓'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelRenamingConversation}
+                      disabled={conversationActionId === conversation.conversation_id}
+                      aria-label="Cancel renaming"
+                      title="Cancel"
+                    >
+                      ×
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="conversation-item"
+                      onClick={() => openConversation(conversation)}
+                    >
+                      <span className="conversation-icon" aria-hidden="true">◎</span>
+                      <span className="conversation-copy">
+                        <strong>{conversation.title}</strong>
+                        <small>{agentLabel(conversation.agent_type)} · {formatConversationTime(conversation.updated_at)}</small>
+                      </span>
+                    </button>
+                    <span className="conversation-actions">
+                      <button
+                        type="button"
+                        onClick={(event) => startRenamingConversation(event, conversation)}
+                        disabled={Boolean(conversationActionId)}
+                        aria-label={'Rename ' + conversation.title}
+                        title="Rename conversation"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        className="delete"
+                        onClick={(event) => handleConversationDelete(event, conversation)}
+                        disabled={Boolean(conversationActionId) || sending}
+                        aria-label={'Delete ' + conversation.title}
+                        title="Delete conversation"
+                      >
+                        {conversationActionId === conversation.conversation_id ? '…' : '×'}
+                      </button>
+                    </span>
+                  </>
+                )}
+              </div>
             ))
           ) : (
             <div className="empty-conversations">

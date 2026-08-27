@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 AgentType = Literal["technical", "billing", "account", "policy", "general"]
@@ -32,6 +32,18 @@ class ConversationSummary(BaseModel):
     title: str
     agent_type: AgentType
     updated_at: datetime
+
+
+class ConversationRenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("Conversation title cannot be empty.")
+        return normalized
 
 
 class ChatMessage(BaseModel):

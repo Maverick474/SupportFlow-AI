@@ -200,6 +200,44 @@ export function SupportFlowProvider({ children }) {
     [apiRequest],
   )
 
+  const renameConversation = useCallback(
+    async (conversationId, title) => {
+      const updated = await apiRequest('/conversations/' + conversationId, {
+        method: 'PATCH',
+        body: JSON.stringify({ title }),
+      })
+      setConversations((current) =>
+        current
+          .map((conversation) =>
+            conversation.conversation_id === conversationId
+              ? updated
+              : conversation,
+          )
+          .sort(
+            (left, right) =>
+              new Date(right.updated_at) - new Date(left.updated_at),
+          ),
+      )
+      return updated
+    },
+    [apiRequest],
+  )
+
+  const deleteConversation = useCallback(
+    async (conversationId) => {
+      await apiRequest('/conversations/' + conversationId, {
+        method: 'DELETE',
+      })
+      setConversations((current) =>
+        current.filter(
+          (conversation) =>
+            conversation.conversation_id !== conversationId,
+        ),
+      )
+    },
+    [apiRequest],
+  )
+
   const sendMessage = useCallback(
     async ({ question, conversationId, agentType }) => {
       const body = { question }
@@ -289,6 +327,8 @@ export function SupportFlowProvider({ children }) {
       logout,
       loadConversations,
       loadMessages,
+      renameConversation,
+      deleteConversation,
       sendMessage,
       uploadKnowledge,
     }),
@@ -303,6 +343,8 @@ export function SupportFlowProvider({ children }) {
       logout,
       loadConversations,
       loadMessages,
+      renameConversation,
+      deleteConversation,
       sendMessage,
       uploadKnowledge,
     ],

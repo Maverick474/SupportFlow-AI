@@ -636,26 +636,86 @@ select:focus-visible {
 .conversation-list { flex: 1; overflow-y: auto; min-height: 0; }
 .conversation-list::-webkit-scrollbar { width: 5px; }
 .conversation-list::-webkit-scrollbar-thumb { border-radius: 5px; background: rgba(255,255,255,.12); }
-.conversation-item {
+.conversation-item-shell {
+  position: relative;
   width: 100%;
+  display: flex;
+  align-items: stretch;
+  border-radius: 8px;
+  color: rgba(255,255,255,.7);
+}
+.conversation-item-shell:hover,
+.conversation-item-shell:focus-within { background: rgba(255,255,255,.055); }
+.conversation-item-shell.active { background: rgba(74, 200, 153, .13); color: white; }
+.conversation-item {
+  min-width: 0;
+  flex: 1;
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding: 11px 9px;
+  padding: 11px 58px 11px 9px;
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: rgba(255,255,255,.7);
+  color: inherit;
   text-align: left;
 }
-.conversation-item:hover { background: rgba(255,255,255,.055); }
-.conversation-item.active { background: rgba(74, 200, 153, .13); color: white; }
 .conversation-icon { margin-top: 2px; color: #72caaa; font-size: 13px; }
-.conversation-copy { min-width: 0; }
+.conversation-copy { min-width: 0; flex: 1; }
 .conversation-copy strong,
 .conversation-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-copy strong { color: inherit; font-size: 12px; font-weight: 620; }
 .conversation-copy small { margin-top: 3px; color: rgba(255,255,255,.35); font-size: 9px; }
+.conversation-actions {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease;
+}
+.conversation-item-shell:hover .conversation-actions,
+.conversation-item-shell:focus-within .conversation-actions { opacity: 1; }
+.conversation-actions button,
+.conversation-rename-form button {
+  width: 23px;
+  height: 23px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255,255,255,.09);
+  color: rgba(255,255,255,.72);
+  font-size: 12px;
+}
+.conversation-actions button:hover,
+.conversation-rename-form button:hover { background: rgba(255,255,255,.16); color: white; }
+.conversation-actions button.delete:hover { background: rgba(238, 91, 91, .2); color: #ffb1b1; }
+.conversation-actions button:disabled,
+.conversation-rename-form button:disabled { cursor: not-allowed; opacity: .42; }
+.conversation-rename-form {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 7px;
+}
+.conversation-rename-form input {
+  min-width: 0;
+  height: 27px;
+  flex: 1;
+  padding: 0 8px;
+  border: 1px solid rgba(114, 202, 170, .65);
+  border-radius: 6px;
+  outline: 0;
+  background: rgba(255,255,255,.08);
+  color: white;
+  font-size: 11px;
+}
+.conversation-rename-form input:focus { border-color: #72caaa; background: rgba(255,255,255,.11); }
 .empty-conversations { padding: 40px 20px; color: rgba(255,255,255,.32); text-align: center; }
 .empty-conversations span { font-size: 23px; }
 .empty-conversations p { margin: 8px 0 0; font-size: 11px; }
