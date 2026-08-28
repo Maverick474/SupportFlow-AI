@@ -52,6 +52,18 @@ AGENT_KEYWORDS: dict[AgentType, tuple[str, ...]] = {
 }
 
 
+AGENT_PATTERNS: dict[AgentType, tuple[str, ...]] = {
+    "billing": (),
+    "account": (),
+    "policy": (),
+    "technical": (
+        r"\bweb[\s-]?hooks?\b",
+        r"\btrouble[\s-]?shoot(?:ing|s|ed)?\b",
+    ),
+    "general": (),
+}
+
+
 @traceable(
     name="supportflow.agent-router",
     run_type="chain",
@@ -66,6 +78,11 @@ def route_agent_type(
 
     normalized = question.casefold()
     for agent_type in ("billing", "account", "policy", "technical"):
+        if any(
+            re.search(pattern, normalized)
+            for pattern in AGENT_PATTERNS[agent_type]
+        ):
+            return agent_type
         if any(
             re.search(rf"\b{re.escape(keyword)}\b", normalized)
             for keyword in AGENT_KEYWORDS[agent_type]

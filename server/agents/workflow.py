@@ -86,6 +86,47 @@ def conversation_recall_kind(
     return None
 
 
+def small_talk_response(question: str) -> str | None:
+    normalized = normalize_evidence_text(question).casefold()
+    normalized = re.sub(r"[^\w'\s-]", " ", normalized)
+    normalized = normalize_evidence_text(normalized)
+
+    if re.fullmatch(
+        r"(?:(?:hi|hello|hey)(?: there)?(?: how are you)?)|"
+        r"(?:how are you)|(?:how is it going)|(?:how's it going)|"
+        r"(?:good (?:morning|afternoon|evening))",
+        normalized,
+    ):
+        if "how are you" in normalized or "how is it going" in normalized:
+            return (
+                "I’m doing well, thanks! How can I help with SupportFlow "
+                "today?"
+            )
+        return "Hi! How can I help with SupportFlow today?"
+
+    if normalized in {"thanks", "thank you", "thanks a lot"}:
+        return (
+            "You’re welcome! If you have another SupportFlow question, "
+            "I’m here to help."
+        )
+
+    if normalized in {"bye", "goodbye", "see you", "see you later"}:
+        return (
+            "Goodbye! Feel free to return whenever you need SupportFlow help."
+        )
+
+    if normalized in {
+        "what can you do",
+        "how can you help",
+        "who are you",
+    }:
+        return (
+            "I can help with SupportFlow account access, billing, policies, "
+            "and technical troubleshooting."
+        )
+    return None
+
+
 def build_retrieval_query(state: AgentState) -> str:
     question = state["question"]
     turns = state.get("conversation_history", [])
@@ -608,14 +649,23 @@ class SupportFlowWorkflow:
             final = state["draft"].answer
         elif verdict == "refuse":
             final = (
-                "I can’t help with that request because it would conflict "
-                "with security or privacy requirements."
+                "I can’t help complete that request because it could put "
+                "account security or privacy at risk. I can still explain "
+                "the safe SupportFlow process or help you find the right team."
+            )
+        elif state.get("agent_type") == "general":
+            final = (
+                "I’m here to help with SupportFlow account access, billing, "
+                "policies, and technical troubleshooting. I don’t have "
+                "reliable information for that question, but I’ll be happy "
+                "to help if you ask about one of those areas."
             )
         else:
             final = (
-                "I couldn’t verify a complete answer from the available "
-                "support document. Please ask an authorized support team "
-                "member to review this request."
+                "I don’t have enough verified information in the uploaded "
+                "support documents to answer that confidently. You can share "
+                "a few more details or ask a SupportFlow team member to "
+                "review it."
             )
         completed_turn = {
             "question": state["question"],
@@ -683,12 +733,51 @@ class SupportFlowWorkflow:
         }
 
     @staticmethod
-    def route_from_start(state: AgentState) -> Literal["recall", "retrieve"]:
-        return (
-            "recall"
-            if conversation_recall_kind(state["question"]) is not None
-            else "retrieve"
+    def small_talk_node(state: AgentState) -> dict:
+        history = state.get("conversation_history", [])
+        final = small_talk_response(state["question"])
+        if final is None:
+            final = "Hi! How can I help with SupportFlow today?"
+
+        draft = DraftAnswer(
+            answer=final,
+            citations=[],
+            requires_human_review=False,
+            uncertainty="",
         )
+        validation = ValidationResult(
+            verdict="pass",
+            grounded=True,
+            citations_valid=True,
+            claim_audits=[],
+            unsupported_claims=[],
+            feedback="Handled as conversational small talk without retrieval.",
+        )
+        completed_turn = {
+            "question": state["question"],
+            "answer": final,
+            "verdict": "pass",
+        }
+        return {
+            "retrieval_query": state["question"],
+            "retrieved_passages": [],
+            "retrieved_chunk_ids": [],
+            "draft": draft,
+            "validation": validation,
+            "revision_count": 0,
+            "final_answer": final,
+            "conversation_history": history[-2:] + [completed_turn],
+        }
+
+    @staticmethod
+    def route_from_start(
+        state: AgentState,
+    ) -> Literal["recall", "small_talk", "retrieve"]:
+        if conversation_recall_kind(state["question"]) is not None:
+            return "recall"
+        if small_talk_response(state["question"]) is not None:
+            return "small_talk"
+        return "retrieve"
 
     @staticmethod
     def route_after_validation(
@@ -708,6 +797,19 @@ class SupportFlowWorkflow:
                 {
                     "run_name": "supportflow.conversation-memory",
                     "tags": ["supportflow", "agent:memory"],
+                }
+            ),
+        )
+        builder.add_node(
+            "small_talk",
+            RunnableLambda(self.small_talk_node).with_config(
+                {
+                    "run_name": "supportflow.small-talk",
+                    "tags": [
+                        "supportflow",
+                        "agent:general",
+                        "interaction:small-talk",
+                    ],
                 }
             ),
         )
@@ -760,9 +862,14 @@ class SupportFlowWorkflow:
         builder.add_conditional_edges(
             START,
             self.route_from_start,
-            {"recall": "conversation_recall", "retrieve": "retrieve"},
+            {
+                "recall": "conversation_recall",
+                "small_talk": "small_talk",
+                "retrieve": "retrieve",
+            },
         )
         builder.add_edge("conversation_recall", END)
+        builder.add_edge("small_talk", END)
         builder.add_edge("retrieve", "generate")
         builder.add_edge("generate", "validate")
         builder.add_conditional_edges(
