@@ -9,9 +9,20 @@ from langgraph.checkpoint.redis import RedisSaver
 from langgraph.graph import END, START, StateGraph
 from redis import Redis
 
-from agents.prompts import GENERATOR_PROMPT, REFINER_PROMPT, VALIDATOR_PROMPT
+from agents.prompts import (
+    GENERATOR_PROMPT,
+    REFINER_PROMPT,
+    SCOPE_PROMPT,
+    VALIDATOR_PROMPT,
+)
 from controller.config import Settings
-from models.agent import AgentState, ClaimAudit, DraftAnswer, ValidationResult
+from models.agent import (
+    AgentState,
+    ClaimAudit,
+    DraftAnswer,
+    ScopeDecision,
+    ValidationResult,
+)
 from service.knowledge import (
     AgentRecordRepository,
     create_embedding_model,
@@ -355,6 +366,11 @@ class SupportFlowWorkflow:
             method="json_schema",
             strict=True,
         )
+        scope_agent = validator_llm.with_structured_output(
+            ScopeDecision,
+            method="json_schema",
+            strict=True,
+        )
         generator_chain = (GENERATOR_PROMPT | generator_agent).with_config(
             {
                 "run_name": "supportflow.generator-agent",
@@ -373,7 +389,29 @@ class SupportFlowWorkflow:
                 "tags": ["supportflow", "agent:refiner"],
             }
         )
-        return generator_chain, validator_chain, refiner_chain
+        scope_chain = (SCOPE_PROMPT | scope_agent).with_config(
+            {
+                "run_name": "supportflow.scope-validator",
+                "tags": ["supportflow", "agent:scope-validator"],
+            }
+        )
+        return generator_chain, validator_chain, refiner_chain, scope_chain
+
+    def scope_check_node(self, state: AgentState) -> dict:
+        _, _, _, scope_chain = self._chains(
+            state["generator_model"],
+            state["validator_model"],
+        )
+        decision = scope_chain.invoke(
+            {
+                "question": state["question"],
+                "history": format_conversation_history(state),
+                "agent_name": state["agent_name"],
+                "agent_type": state["agent_type"],
+                "agent_system_prompt": state.get("agent_system_prompt", ""),
+            }
+        )
+        return {"scope_decision": decision}
 
     def retrieve_node(self, state: AgentState) -> dict:
         visibility = state.get("user_visibility", "public")
@@ -431,7 +469,7 @@ class SupportFlowWorkflow:
         }
 
     def generate_node(self, state: AgentState) -> dict:
-        generator_chain, _, _ = self._chains(
+        generator_chain, _, _, _ = self._chains(
             state["generator_model"],
             state["validator_model"],
         )
@@ -449,7 +487,7 @@ class SupportFlowWorkflow:
         return {"draft": canonicalize_draft_citations(draft, evidence)}
 
     def validate_node(self, state: AgentState) -> dict:
-        _, validator_chain, _ = self._chains(
+        _, validator_chain, _, _ = self._chains(
             state["generator_model"],
             state["validator_model"],
         )
@@ -620,7 +658,7 @@ class SupportFlowWorkflow:
         return {"validation": result, "draft": draft}
 
     def refine_node(self, state: AgentState) -> dict:
-        _, _, refiner_chain = self._chains(
+        _, _, refiner_chain, _ = self._chains(
             state["generator_model"],
             state["validator_model"],
         )
@@ -770,14 +808,71 @@ class SupportFlowWorkflow:
         }
 
     @staticmethod
+    def scope_rejection_node(state: AgentState) -> dict:
+        history = state.get("conversation_history", [])
+        decision = state["scope_decision"]
+        if decision.classification == "security":
+            final = (
+                "I can’t help complete that request because it could put "
+                "account security or privacy at risk. I can still explain "
+                "the safe SupportFlow process or help you find the right team."
+            )
+        else:
+            final = (
+                "That question is outside the SupportFlow support areas I’m "
+                "set up to handle. I can help with account access, billing, "
+                "policies, and technical troubleshooting."
+            )
+
+        draft = DraftAnswer(
+            answer=final,
+            citations=[],
+            requires_human_review=False,
+            uncertainty=decision.reason,
+        )
+        validation = ValidationResult(
+            verdict="refuse",
+            grounded=True,
+            citations_valid=True,
+            claim_audits=[],
+            unsupported_claims=[],
+            feedback=decision.reason,
+        )
+        completed_turn = {
+            "question": state["question"],
+            "answer": final,
+            "verdict": "refuse",
+        }
+        return {
+            "retrieval_query": state["question"],
+            "retrieved_passages": [],
+            "retrieved_chunk_ids": [],
+            "draft": draft,
+            "validation": validation,
+            "revision_count": 0,
+            "final_answer": final,
+            "conversation_history": history[-2:] + [completed_turn],
+        }
+
+    @staticmethod
     def route_from_start(
         state: AgentState,
-    ) -> Literal["recall", "small_talk", "retrieve"]:
+    ) -> Literal["recall", "small_talk", "scope"]:
         if conversation_recall_kind(state["question"]) is not None:
             return "recall"
         if small_talk_response(state["question"]) is not None:
             return "small_talk"
-        return "retrieve"
+        return "scope"
+
+    @staticmethod
+    def route_after_scope(
+        state: AgentState,
+    ) -> Literal["reject", "retrieve"]:
+        return (
+            "retrieve"
+            if state["scope_decision"].classification == "in_scope"
+            else "reject"
+        )
 
     @staticmethod
     def route_after_validation(
@@ -810,6 +905,24 @@ class SupportFlowWorkflow:
                         "agent:general",
                         "interaction:small-talk",
                     ],
+                }
+            ),
+        )
+        builder.add_node(
+            "scope_check",
+            RunnableLambda(self.scope_check_node).with_config(
+                {
+                    "run_name": "supportflow.scope-check",
+                    "tags": ["supportflow", "agent:scope-validator"],
+                }
+            ),
+        )
+        builder.add_node(
+            "scope_rejection",
+            RunnableLambda(self.scope_rejection_node).with_config(
+                {
+                    "run_name": "supportflow.scope-rejection",
+                    "tags": ["supportflow", "agent:scope-validator"],
                 }
             ),
         )
@@ -865,11 +978,17 @@ class SupportFlowWorkflow:
             {
                 "recall": "conversation_recall",
                 "small_talk": "small_talk",
-                "retrieve": "retrieve",
+                "scope": "scope_check",
             },
         )
         builder.add_edge("conversation_recall", END)
         builder.add_edge("small_talk", END)
+        builder.add_conditional_edges(
+            "scope_check",
+            self.route_after_scope,
+            {"reject": "scope_rejection", "retrieve": "retrieve"},
+        )
+        builder.add_edge("scope_rejection", END)
         builder.add_edge("retrieve", "generate")
         builder.add_edge("generate", "validate")
         builder.add_conditional_edges(

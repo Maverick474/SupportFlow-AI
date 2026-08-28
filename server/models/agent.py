@@ -41,6 +41,13 @@ class ClaimAudit(BaseModel):
     )
 
 
+class ScopeDecision(BaseModel):
+    classification: Literal["in_scope", "out_of_scope", "security"]
+    reason: str = Field(
+        description="Brief reason for the scope classification."
+    )
+
+
 class ValidationResult(BaseModel):
     verdict: Literal["pass", "revise", "escalate", "refuse"]
     grounded: bool
@@ -71,6 +78,7 @@ class AgentState(TypedDict, total=False):
     validator_model: str
     user_visibility: Visibility
     conversation_history: list[dict[str, str]]
+    scope_decision: ScopeDecision
     retrieval_query: str
     retrieved_passages: list[str]
     retrieved_chunk_ids: list[str]

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from redis.asyncio import Redis
 
-from models.chat import AgentType, ChatMessage, ConversationSummary
+from models.chat import AgentType, ChatMessage, ConversationSummary, Verdict
 
 
 class ConversationOwnershipError(Exception):
@@ -83,12 +83,14 @@ class ConversationStore:
         role: str,
         content: str,
         agent_type: AgentType | None = None,
+        verdict: Verdict | None = None,
         citations: list[str] | None = None,
     ) -> str:
         fields = {
             "role": role,
             "content": content,
             "agent_type": agent_type or "",
+            "verdict": verdict or "",
             "citations": json.dumps(citations or []),
             "created_at": datetime.now(UTC).isoformat(),
         }
@@ -237,6 +239,7 @@ class ConversationStore:
                     role=fields["role"],
                     content=fields["content"],
                     agent_type=fields.get("agent_type") or None,
+                    verdict=fields.get("verdict") or None,
                     citations=json.loads(fields.get("citations", "[]")),
                     created_at=datetime.fromisoformat(fields["created_at"]),
                 )

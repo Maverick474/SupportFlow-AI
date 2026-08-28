@@ -97,6 +97,7 @@ class ChatService:
             role="assistant",
             content=result["final_answer"],
             agent_type=agent_type,
+            verdict=result["validation"].verdict,
             citations=citations,
         )
 
@@ -117,8 +118,7 @@ class ChatService:
                 "run_id": str(run_id),
                 "agent_type": agent_type,
                 "validation_status": validation.verdict,
-                "requires_human_review": validation.verdict
-                in {"escalate", "refuse"},
+                "requires_human_review": validation.verdict == "escalate",
             }
         )
         return ChatResponse(

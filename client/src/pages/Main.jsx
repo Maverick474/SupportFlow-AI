@@ -51,6 +51,14 @@ function agentLabel(agentType) {
   return AGENT_OPTIONS.find((agent) => agent.value === agentType)?.label || 'General'
 }
 
+function verdictLabel(verdict, agentType) {
+  if (verdict === 'pass') return '✓ Validated'
+  if (verdict === 'refuse') return 'Rejected'
+  if (verdict === 'escalate') return 'Escalate'
+  if (verdict === 'revise') return 'Revision'
+  return agentLabel(agentType)
+}
+
 function removeChatCitations(content) {
   let visibleText = ''
   let cursor = 0
@@ -563,7 +571,7 @@ export default function Main({ onNavigate }) {
                         <strong>{message.role === 'assistant' ? 'SupportFlow AI' : user?.full_name}</strong>
                         {message.role === 'assistant' && (
                           <span className={`verdict-chip ${message.verdict || 'saved'}`}>
-                            {message.verdict === 'pass' ? '✓ Validated' : message.verdict ? message.verdict : agentLabel(message.agent_type)}
+                            {verdictLabel(message.verdict, message.agent_type)}
                           </span>
                         )}
                       </div>

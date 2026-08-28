@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 AgentType = Literal["technical", "billing", "account", "policy", "general"]
 Visibility = Literal["public", "internal"]
+Verdict = Literal["pass", "revise", "escalate", "refuse"]
 
 
 class ChatRequest(BaseModel):
@@ -21,7 +22,7 @@ class ChatResponse(BaseModel):
     conversation_id: UUID
     run_id: UUID | None = None
     agent_type: AgentType
-    verdict: Literal["pass", "revise", "escalate", "refuse"]
+    verdict: Verdict
     final_answer: str
     citations: list[str]
     revision_count: int
@@ -51,6 +52,7 @@ class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
     content: str
     agent_type: AgentType | None = None
+    verdict: Verdict | None = None
     citations: list[str] = Field(default_factory=list)
     created_at: datetime
 
