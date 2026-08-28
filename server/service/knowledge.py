@@ -12,6 +12,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langsmith import traceable
 from supabase import Client
 
+from agents.tickets import TicketDraft, ticket_reference
 from controller.config import Settings
 from models.agent import AgentConfig
 from models.chat import AgentType, KnowledgeIngestResponse, Visibility
@@ -60,7 +61,7 @@ def normalize_openrouter_model(model: str, fallback: str) -> str:
 
 
 class AgentRecordRepository:
-    """Read and write agents, knowledge chunks, and runs in Supabase."""
+    """Read and write agents, knowledge chunks, runs, and tickets."""
 
     def __init__(self, client: Client) -> None:
         self.client = client
@@ -153,8 +154,10 @@ class AgentRecordRepository:
         ticket_id: UUID | None,
         question: str,
         result: dict[str, Any],
+        run_id: UUID | None = None,
+        created_ticket: dict[str, Any] | None = None,
     ) -> UUID:
-        run_id = uuid4()
+        run_id = run_id or uuid4()
         validation = result["validation"]
         draft = result.get("draft")
         data = {
@@ -169,6 +172,8 @@ class AgentRecordRepository:
             "retrieved_chunk_ids": result.get("retrieved_chunk_ids", []),
             "revision_count": result.get("revision_count", 0),
         }
+        if created_ticket is not None:
+            data["created_ticket"] = created_ticket
         self.client.table("agent_records").insert(
             {
                 "id": str(run_id),
@@ -184,6 +189,40 @@ class AgentRecordRepository:
             }
         ).execute()
         return run_id
+
+    @staticmethod
+    def build_ticket_data(
+        *,
+        ticket_id: UUID,
+        run_id: UUID,
+        workspace_id: UUID,
+        conversation_id: UUID,
+        source_agent_type: AgentType,
+        requester_name: str,
+        requester_email: str,
+        escalation_reason: str,
+        draft: TicketDraft,
+    ) -> dict[str, Any]:
+        reference = ticket_reference(ticket_id)
+        ticket_data: dict[str, Any] = {
+            "ticket_id": str(ticket_id),
+            "ticket_reference": reference,
+            "run_id": str(run_id),
+            "workspace_id": str(workspace_id),
+            "conversation_id": str(conversation_id),
+            "source_agent_type": source_agent_type,
+            "title": draft.title,
+            "summary": draft.summary,
+            "category": draft.category,
+            "priority": draft.priority,
+            "status": "open",
+            "customer_impact": draft.customer_impact,
+            "requested_action": draft.requested_action,
+            "requester_name": requester_name,
+            "requester_email": requester_email,
+            "escalation_reason": escalation_reason,
+        }
+        return ticket_data
 
 
 class KnowledgeIngestionService:

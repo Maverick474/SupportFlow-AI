@@ -10,6 +10,7 @@ const AGENT_OPTIONS = [
   { value: 'billing', label: 'Billing' },
   { value: 'account', label: 'Account' },
   { value: 'policy', label: 'Policy' },
+  { value: 'ticket', label: 'Ticket & Escalation' },
 ]
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024
@@ -348,7 +349,7 @@ export default function Main({ onNavigate }) {
     try {
       const result = await uploadKnowledge({
         file: uploadFile,
-        agentType,
+        agentType: agentType === 'ticket' ? 'auto' : agentType,
         replaceExisting,
       })
       setUploadResult(result)
@@ -667,7 +668,7 @@ export default function Main({ onNavigate }) {
               </label>
 
               <div className="upload-details">
-                <span>Knowledge scope <strong>{agentType === 'auto' ? 'All agents' : `${agentLabel(agentType)} agent`}</strong></span>
+                <span>Knowledge scope <strong>{agentType === 'auto' || agentType === 'ticket' ? 'All agents' : `${agentLabel(agentType)} agent`}</strong></span>
                 <span>Storage <strong>Supabase vectors</strong></span>
               </div>
 

@@ -5,7 +5,14 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 
-AgentType = Literal["technical", "billing", "account", "policy", "general"]
+AgentType = Literal[
+    "technical",
+    "billing",
+    "account",
+    "policy",
+    "general",
+    "ticket",
+]
 Visibility = Literal["public", "internal"]
 Verdict = Literal["pass", "revise", "escalate", "refuse"]
 
@@ -26,6 +33,10 @@ class ChatResponse(BaseModel):
     final_answer: str
     citations: list[str]
     revision_count: int
+    ticket_id: UUID | None = None
+    ticket_reference: str | None = None
+    ticket_status: Literal["open"] | None = None
+    ticket_priority: Literal["low", "medium", "high", "urgent"] | None = None
 
 
 class ConversationSummary(BaseModel):

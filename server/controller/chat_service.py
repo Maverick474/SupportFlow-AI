@@ -2,6 +2,7 @@ import asyncio
 from uuid import UUID, uuid4
 
 from agents.routing import route_agent_type
+from agents.tickets import TicketAgent
 from agents.workflow import SupportFlowWorkflow
 from controller.conversation_store import ConversationStore
 from models.agent import AgentState
@@ -18,11 +19,13 @@ class ChatService:
         repository: AgentRecordRepository,
         conversation_store: ConversationStore,
         workflow: SupportFlowWorkflow,
+        ticket_agent: TicketAgent,
         n8n_webhook: N8nWebhookClient,
     ) -> None:
         self.repository = repository
         self.conversation_store = conversation_store
         self.workflow = workflow
+        self.ticket_agent = ticket_agent
         self.n8n_webhook = n8n_webhook
 
     async def ask(
@@ -86,22 +89,69 @@ class ChatService:
             },
         )
 
+        validation = result["validation"]
+        scope_decision = result.get("scope_decision")
+        explicit_ticket_request = (
+            agent_type == "ticket"
+            and scope_decision is not None
+            and scope_decision.classification == "in_scope"
+            and validation.verdict != "refuse"
+        )
+        if explicit_ticket_request and validation.verdict != "escalate":
+            validation = validation.model_copy(
+                update={
+                    "verdict": "escalate",
+                    "feedback": (
+                        "The Ticket and Escalation agent was explicitly selected. "
+                        "Create a ticket for authorized human review."
+                    ),
+                }
+            )
+            result["validation"] = validation
+
+        run_id = uuid4()
+        created_ticket: dict | None = None
+        if validation.verdict == "escalate":
+            ticket_config = await asyncio.to_thread(
+                self.repository.get_agent_config,
+                user.workspace_id,
+                "ticket",
+            )
+            ticket_draft = await asyncio.to_thread(
+                self.ticket_agent.create_draft,
+                model_name=ticket_config.generator_model,
+                source_agent=agent_type,
+                question=request.question,
+                final_answer=result["final_answer"],
+                validator_feedback=validation.feedback,
+            )
+            ticket_id = uuid4()
+            created_ticket = self.repository.build_ticket_data(
+                ticket_id=ticket_id,
+                run_id=run_id,
+                workspace_id=user.workspace_id,
+                conversation_id=conversation_id,
+                source_agent_type=agent_type,
+                requester_name=user.full_name,
+                requester_email=str(user.email),
+                escalation_reason=validation.feedback,
+                draft=ticket_draft,
+            )
+            result["final_answer"] = (
+                "I’ve created a support ticket for authorized human review.\n\n"
+                f"Ticket: {created_ticket['ticket_reference']}\n"
+                "Status: Open\n"
+                f"Priority: {ticket_draft.priority.title()}\n"
+                f"Summary: {ticket_draft.title}"
+            )
+
         draft = result.get("draft")
         citations = (
             draft.citations
-            if draft and result["validation"].verdict == "pass"
+            if draft and validation.verdict == "pass"
             else []
         )
-        await self.conversation_store.append_message(
-            conversation_id=conversation_id,
-            role="assistant",
-            content=result["final_answer"],
-            agent_type=agent_type,
-            verdict=result["validation"].verdict,
-            citations=citations,
-        )
-
-        run_id = await asyncio.to_thread(
+        await asyncio.to_thread(
             self.repository.record_run,
             workspace_id=user.workspace_id,
             agent=agent,
@@ -110,23 +160,65 @@ class ChatService:
             ticket_id=request.ticket_id,
             question=request.question,
             result=result,
+            run_id=run_id,
+            created_ticket=created_ticket,
         )
-        validation = result["validation"]
-        self.n8n_webhook.dispatch(
-            {
-                "event_type": "agent_run_completed",
-                "run_id": str(run_id),
-                "agent_type": agent_type,
-                "validation_status": validation.verdict,
-                "requires_human_review": validation.verdict == "escalate",
-            }
+        await self.conversation_store.append_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=result["final_answer"],
+            agent_type=agent_type,
+            verdict=validation.verdict,
+            citations=citations,
         )
+        webhook_agent_type = agent_type
+        if webhook_agent_type == "ticket":
+            category = (
+                created_ticket.get("category") if created_ticket else None
+            )
+            webhook_agent_type = (
+                category
+                if category in {"technical", "billing", "account", "policy"}
+                else "general"
+            )
+        webhook_payload = {
+            "event_type": "agent_run_completed",
+            "run_id": str(run_id),
+            "agent_type": webhook_agent_type,
+            "validation_status": validation.verdict,
+            "requires_human_review": validation.verdict == "escalate",
+        }
+        if created_ticket is not None:
+            webhook_payload.update(created_ticket)
+            webhook_payload["handled_by_agent"] = "ticket"
+            webhook_payload["source_agent_type"] = agent_type
+        self.n8n_webhook.dispatch(webhook_payload)
         return ChatResponse(
             conversation_id=conversation_id,
             run_id=run_id,
             agent_type=agent_type,
-            verdict=result["validation"].verdict,
+            verdict=validation.verdict,
             final_answer=result["final_answer"],
             citations=citations,
             revision_count=result.get("revision_count", 0),
+            ticket_id=(
+                UUID(created_ticket["ticket_id"])
+                if created_ticket is not None
+                else None
+            ),
+            ticket_reference=(
+                created_ticket["ticket_reference"]
+                if created_ticket is not None
+                else None
+            ),
+            ticket_status=(
+                created_ticket["status"]
+                if created_ticket is not None
+                else None
+            ),
+            ticket_priority=(
+                created_ticket["priority"]
+                if created_ticket is not None
+                else None
+            ),
         )

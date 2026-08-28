@@ -6,6 +6,13 @@ from models.chat import AgentType
 
 
 AGENT_KEYWORDS: dict[AgentType, tuple[str, ...]] = {
+    "ticket": (
+        "human agent",
+        "human support",
+        "representative",
+        "escalate",
+        "escalation",
+    ),
     "billing": (
         "bill",
         "billing",
@@ -53,6 +60,10 @@ AGENT_KEYWORDS: dict[AgentType, tuple[str, ...]] = {
 
 
 AGENT_PATTERNS: dict[AgentType, tuple[str, ...]] = {
+    "ticket": (
+        r"\b(?:open|create|raise|submit|need) (?:a )?(?:support )?(?:ticket|case)\b",
+        r"\b(?:speak|talk) (?:to|with) (?:a )?(?:human|representative|agent)\b",
+    ),
     "billing": (),
     "account": (),
     "policy": (),
@@ -77,7 +88,7 @@ def route_agent_type(
         return requested_agent
 
     normalized = question.casefold()
-    for agent_type in ("billing", "account", "policy", "technical"):
+    for agent_type in ("ticket", "billing", "account", "policy", "technical"):
         if any(
             re.search(pattern, normalized)
             for pattern in AGENT_PATTERNS[agent_type]

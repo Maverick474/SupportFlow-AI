@@ -5,6 +5,7 @@ from redis import Redis as SyncRedis
 from redis.asyncio import Redis
 from supabase import Client, create_client
 
+from agents.tickets import TicketAgent
 from agents.workflow import SupportFlowWorkflow
 from controller.auth_service import AuthService
 from controller.chat_service import ChatService
@@ -25,6 +26,7 @@ class AppResources:
     conversation_store: ConversationStore
     agent_repository: AgentRecordRepository
     workflow: SupportFlowWorkflow
+    ticket_agent: TicketAgent
     n8n_webhook: N8nWebhookClient
     chat_service: ChatService
     ingestion_service: KnowledgeIngestionService
@@ -59,6 +61,7 @@ async def create_resources(settings: Settings) -> AppResources:
         repository=repository,
         redis_client=redis_checkpointer_client,
     )
+    ticket_agent = TicketAgent(settings)
     n8n_webhook = N8nWebhookClient(
         webhook_url=settings.n8n_webhook_url,
         webhook_secret=settings.n8n_secret,
@@ -68,6 +71,7 @@ async def create_resources(settings: Settings) -> AppResources:
         repository=repository,
         conversation_store=conversation_store,
         workflow=workflow,
+        ticket_agent=ticket_agent,
         n8n_webhook=n8n_webhook,
     )
     ingestion_service = KnowledgeIngestionService(settings, repository)
@@ -82,6 +86,7 @@ async def create_resources(settings: Settings) -> AppResources:
         conversation_store=conversation_store,
         agent_repository=repository,
         workflow=workflow,
+        ticket_agent=ticket_agent,
         n8n_webhook=n8n_webhook,
         chat_service=chat_service,
         ingestion_service=ingestion_service,
