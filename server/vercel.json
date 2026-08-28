@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "app.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{assets/**,__pycache__/**,**/*.pyc}"
+    }
+  }
+}

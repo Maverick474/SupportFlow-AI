@@ -15,7 +15,8 @@ const SupportFlowContext = createContext(null)
 const ACCESS_TOKEN_KEY = 'supportflow_access_token'
 const REFRESH_TOKEN_KEY = 'supportflow_refresh_token'
 const USER_KEY = 'supportflow_user'
-const API_PREFIX = '/api/v1'
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+const API_PREFIX = `${API_BASE_URL}/api/v1`
 
 function readStoredUser() {
   try {
@@ -301,7 +302,7 @@ export function SupportFlowProvider({ children }) {
     let active = true
     async function checkBackend() {
       try {
-        const response = await fetch('/health')
+        const response = await fetch(`${API_BASE_URL}/health`)
         if (active) setBackendOnline(response.ok)
       } catch {
         if (active) setBackendOnline(false)
