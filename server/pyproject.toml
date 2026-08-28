@@ -3,6 +3,28 @@ name = "supportflow-api"
 version = "0.1.0"
 description = "FastAPI backend for SupportFlow AI"
 requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+    "python-dotenv",
+    "python-multipart",
+    "httpx",
+    "PyJWT",
+    "pwdlib[argon2]",
+    "email-validator",
+    "pymongo",
+    "redis",
+    "supabase",
+    "langchain",
+    "langgraph",
+    "langsmith",
+    "langchain-openai",
+    "langchain-community",
+    "langchain-text-splitters",
+    "langgraph-checkpoint-redis",
+    "pypdf",
+]
 
 [tool.vercel]
 entrypoint = "app:app"
