@@ -58,67 +58,38 @@ SupportFlow AI provides a controlled support workflow instead of relying on a si
 
 ```mermaid
 flowchart LR
-    User[Customer or support admin] --> Client[React and Vite client]
-    Client -->|HTTPS and JWT| API[FastAPI server]
-
-    API --> Auth[Authentication service]
-    Auth --> Mongo[(MongoDB)]
-
-    API --> Chat[Chat service]
-    Chat --> Router[Agent router]
-    Router --> Graph[LangGraph RAG workflow]
-
-    Graph --> Redis[(Redis)]
-    Graph --> Supabase[(Supabase and pgvector)]
-    Graph --> OpenRouter[OpenRouter models]
-    Graph --> LangSmith[LangSmith tracing]
-
-    Chat --> Ticket[Ticket and escalation agent]
-    Chat -->|Agent run event| N8N[n8n workflow]
-
-    N8N --> Monday[Monday.com]
-    N8N --> Email[Email notification]
-    N8N --> Snowflake[(Snowflake analytics)]
+    User[User] --> Client[React client]
+    Client --> API[FastAPI server]
+    API --> AI[Agent and RAG workflow]
+    API --> Data[(MongoDB, Redis, and Supabase)]
+    AI --> Models[OpenRouter models]
+    AI --> Trace[LangSmith]
+    API --> N8N[n8n automation]
+    N8N --> Tools[Monday.com, email, and Snowflake]
 ```
 
 ## End-to-end request flow
 
 ```mermaid
 flowchart TD
-    Question[User submits a question] --> Authenticate[Validate JWT and workspace]
-    Authenticate --> SelectAgent{Agent selected?}
-    SelectAgent -->|Manual| AgentConfig[Load selected agent]
-    SelectAgent -->|Auto route| Router[Keyword and pattern router]
-    Router --> AgentConfig
-
-    AgentConfig --> Entry{Request type}
-    Entry -->|Conversation recall| Recall[Return previous question or answer]
-    Entry -->|Greeting or small talk| SmallTalk[Return friendly response]
-    Entry -->|Support request| Scope[Scope and safety classification]
-
-    Scope -->|Out of scope| Reject[Return relevant and human-friendly rejection]
-    Scope -->|Security or privacy risk| Refuse[Return safe refusal]
-    Scope -->|In scope| Embed[Embed retrieval query]
-
-    Embed --> Retrieve[Retrieve matching Supabase chunks]
-    Retrieve --> Generate[GPT-4o Mini generator]
-    Generate --> Validate[GPT-4.1 Mini validator]
-
-    Validate -->|Pass| Approved[Return grounded answer]
-    Validate -->|Revise| Refine[Refine using validator feedback]
+    Question[User question] --> Route[Select support agent]
+    Route --> Type{Request type}
+    Type -->|Greeting or memory| Direct[Direct response]
+    Type -->|Support request| Scope{In scope and safe?}
+    Scope -->|No| Reject[Reject or refuse safely]
+    Scope -->|Yes| Retrieve[Retrieve PDF evidence]
+    Retrieve --> Generate[Generate answer]
+    Generate --> Validate{Validate answer}
+    Validate -->|Pass| Answer[Return grounded answer]
+    Validate -->|Revise| Refine[Refine answer]
     Refine --> Validate
-    Validate -->|Refuse| Refuse
-    Validate -->|Escalate or revision limit| TicketAgent[Create structured support ticket]
-
-    Approved --> Persist[Save messages and run record]
-    Reject --> Persist
-    Refuse --> Persist
-    Recall --> Persist
-    SmallTalk --> Persist
-    TicketAgent --> Persist
-
-    Persist --> Webhook[Send agent_run_completed event to n8n]
-    Webhook --> Response[Return response to React]
+    Validate -->|Escalate| Ticket[Create support ticket]
+    Validate -->|Refuse| Reject
+    Direct --> Save[Save conversation and run]
+    Reject --> Save
+    Answer --> Save
+    Ticket --> Save
+    Save --> Event[Notify n8n]
 ```
 
 The workflow permits at most two refinement attempts. If the answer still cannot be verified, it is escalated instead of being presented as reliable support guidance.
@@ -239,25 +210,14 @@ Escalation events additionally contain the structured ticket fields.
 ```mermaid
 flowchart TD
     Webhook[n8n Webhook] --> Validate[Validate event data]
-    Validate --> Metadata[Add event metadata]
-    Metadata --> Switch{Validation status}
-
-    Switch -->|pass| ValidatedRow[Prepare validated Snowflake row]
-    ValidatedRow --> Snowflake[(Insert into Snowflake)]
-
-    Switch -->|escalate| MondayReview[Prepare Monday human-review item]
-    MondayReview --> CreateReview[Create Monday.com item]
-    CreateReview --> Notify[Send escalation email]
-    Notify --> EscalationRow[Prepare escalation Snowflake row]
-    EscalationRow --> Snowflake
-
-    Switch -->|refuse| MondayRejected[Prepare rejected-request item]
-    MondayRejected --> CreateRejected[Create Monday.com item]
-    CreateRejected --> RefusedRow[Prepare refused Snowflake row]
-    RefusedRow --> Snowflake
-
-    Switch -->|revise| RevisionRow[Log revision if emitted]
-    RevisionRow --> Snowflake
+    Validate --> Switch{Validation status}
+    Switch -->|pass| Snowflake[(Snowflake)]
+    Switch -->|escalate| Review[Monday human-review item]
+    Review --> Email[Send email]
+    Email --> Snowflake
+    Switch -->|refuse| Rejected[Monday rejected item]
+    Rejected --> Snowflake
+    Switch -->|revise| Snowflake
 ```
 
 Use `run_id` as the unique event or idempotency key in downstream systems so retries do not create duplicate Monday.com items or Snowflake records.
