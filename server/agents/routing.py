@@ -57,8 +57,10 @@ AGENT_KEYWORDS: dict[AgentType, tuple[str, ...]] = {
 AGENT_PATTERNS: dict[AgentType, tuple[str, ...]] = {
     "ticket": (
         r"\b(?:open|create|generate|raise|submit|log|file|make) "
-        r"(?:me )?(?:a )?(?:support )?(?:ticket|case)\b",
-        r"\b(?:need|want|request|would like) (?:a )?(?:support )?"
+        r"(?:me )?(?:a )?(?:(?:support|technical|billing|account|policy) )?"
+        r"(?:ticket|case)\b",
+        r"\b(?:need|want|request|would like) (?:a )?"
+        r"(?:(?:support|technical|billing|account|policy) )?"
         r"(?:ticket|case)\b",
         r"\b(?:need|want|request|would like) (?:a )?"
         r"(?:human agent|human support|representative)\b",
@@ -81,13 +83,28 @@ _ACTIVE_INCIDENT_SUBJECT = re.compile(
     r"\b(?:i|i'm|i am|i've|i have|me|my|mine|we|we're|we are|"
     r"we've|we have|us|our|ours)\b"
 )
-_ACTIVE_INCIDENT_FAILURE = re.compile(
-    r"\b(?:can(?:not|'t)|could(?: not|n't)|unable|locked out|"
-    r"not working|does(?: not|n't) work|did(?: not|n't) work|"
-    r"fail(?:ed|ing|s)?|broken|error|issue|problem|"
-    r"(?:having|experiencing) (?:technical )?trouble|outage|"
-    r"not arriv(?:e|ed|ing)|did(?: not|n't) receive|"
-    r"charged twice|duplicate charge|keeps? (?:failing|crashing))\b"
+_ACCOUNT_ACCESS_BLOCKED = re.compile(
+    r"\b(?:can(?:not|'t)|could(?: not|n't)|unable to)\s+"
+    r"(?:(?:access|open)\s+(?:my|our|the)\s+account|"
+    r"(?:log|sign)[\s-]?in(?:to\s+(?:my|our|the)\s+account)?)\b|"
+    r"\blocked out of (?:my|our|the) account\b|"
+    r"\blost access to (?:my|our|the) account\b"
+)
+_REPEATED_UNRESOLVED_FAILURE = re.compile(
+    r"\b(?:"
+    r"(?:multiple|several|repeated|many)\s+(?:failed\s+)?"
+    r"(?:attempts?|tries)|"
+    r"(?:tried|attempted)(?:\s+\w+){0,8}\s+"
+    r"(?:twice|three times|multiple times|several times|repeatedly)|"
+    r"(?:tried|attempted)(?:\s+\w+){0,8}\s+(?:but|and)\s+"
+    r"(?:it\s+)?(?:still\s+)?(?:fails?|failing|does(?:n't| not)\s+work|"
+    r"is(?:n't| not)\s+working)|"
+    r"(?:after|despite)\s+(?:multiple|several|repeated|many)\s+"
+    r"(?:attempts?|tries)|"
+    r"(?:it\s+)?still\s+(?:fails?|failing|does(?:n't| not)\s+work|"
+    r"is(?:n't| not)\s+working)|"
+    r"keeps?\s+(?:failing|crashing)"
+    r")\b"
 )
 _LIVE_SUPPORT_ACTION = re.compile(
     r"\b(?:(?:can|could|would|will) you|please)\s+"
@@ -113,17 +130,19 @@ def is_explicit_ticket_request(
     )
 
 
-def is_active_support_incident(
+def is_ticket_worthy_incident(
     question: str,
     agent_type: AgentType,
 ) -> bool:
-    """Identify a customer-specific failure, not a general handbook question."""
+    """Identify a blocked account or repeated unresolved customer incident."""
     if agent_type not in {"technical", "billing", "account"}:
         return False
     normalized = " ".join(question.casefold().split())
+    if not _ACTIVE_INCIDENT_SUBJECT.search(normalized):
+        return False
     return bool(
-        _ACTIVE_INCIDENT_SUBJECT.search(normalized)
-        and _ACTIVE_INCIDENT_FAILURE.search(normalized)
+        _ACCOUNT_ACCESS_BLOCKED.search(normalized)
+        or _REPEATED_UNRESOLVED_FAILURE.search(normalized)
     )
 
 
@@ -139,10 +158,10 @@ def should_create_ticket(
     agent_type: AgentType,
     requested_agent: AgentType | None = None,
 ) -> bool:
-    """Gate tickets to explicit requests, active incidents, or live actions."""
+    """Gate tickets to explicit, blocked, repeated, or privileged requests."""
     return (
         is_explicit_ticket_request(question, requested_agent)
-        or is_active_support_incident(question, agent_type)
+        or is_ticket_worthy_incident(question, agent_type)
         or requires_live_support_action(question)
     )
 

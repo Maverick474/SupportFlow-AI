@@ -122,8 +122,9 @@ class ChatService:
                 update={
                     "verdict": "escalate",
                     "feedback": (
-                        "The request describes an active support incident or "
-                        "explicitly asks for a ticket or live support action."
+                        "The request meets the strict ticket gate: an explicit "
+                        "ticket or human request, a privileged live action, an "
+                        "account lockout, or repeated unresolved attempts."
                     ),
                 }
             )
@@ -134,8 +135,8 @@ class ChatService:
                     "verdict": "revise",
                     "feedback": (
                         "The knowledge answer could not be fully verified, but "
-                        "the user did not report an active incident or request "
-                        "a ticket. Do not create a support ticket automatically."
+                        "the request does not meet the strict ticket criteria. "
+                        "Do not create a support ticket automatically."
                     ),
                 }
             )
