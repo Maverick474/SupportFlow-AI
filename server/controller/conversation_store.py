@@ -99,6 +99,52 @@ class ConversationStore:
             fields,
         )
 
+    async def get_recent_completed_turns(
+        self,
+        *,
+        mongo_user_id: str,
+        conversation_id: UUID,
+        limit: int = 3,
+    ) -> list[dict[str, str]]:
+        """Return recent user/assistant turns for serverless-safe agent memory."""
+        metadata = await self.redis.hgetall(
+            self._metadata_key(conversation_id)
+        )
+        if (
+            not metadata
+            or metadata.get("mongo_user_id") != mongo_user_id
+        ):
+            raise ConversationOwnershipError(
+                "Conversation was not found for this user."
+            )
+
+        entries = await self.redis.xrevrange(
+            self._messages_key(conversation_id),
+            count=max(limit * 4, 12),
+        )
+        entries.reverse()
+
+        turns: list[dict[str, str]] = []
+        pending_question: str | None = None
+        for _, fields in entries:
+            role = fields.get("role")
+            if role == "user":
+                pending_question = fields.get("content", "").strip()
+                continue
+            if role != "assistant" or not pending_question:
+                continue
+
+            turns.append(
+                {
+                    "question": pending_question,
+                    "answer": fields.get("content", "").strip(),
+                    "verdict": fields.get("verdict") or "pass",
+                }
+            )
+            pending_question = None
+
+        return turns[-limit:]
+
     async def list_conversations(
         self,
         *,

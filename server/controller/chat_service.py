@@ -62,6 +62,15 @@ class ChatService:
             agent_type=stored_agent_type,
             first_question=request.question,
         )
+        conversation_history = []
+        if request.conversation_id is not None:
+            conversation_history = (
+                await self.conversation_store.get_recent_completed_turns(
+                    mongo_user_id=user.id,
+                    conversation_id=conversation_id,
+                    limit=3,
+                )
+            )
         await self.conversation_store.append_message(
             conversation_id=conversation_id,
             role="user",
@@ -82,6 +91,7 @@ class ChatService:
             "generator_model": agent.generator_model,
             "validator_model": agent.validator_model,
             "user_visibility": request.user_visibility,
+            "conversation_history": conversation_history,
         }
         result = await asyncio.to_thread(
             self.workflow.invoke,
