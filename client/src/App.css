@@ -644,6 +644,7 @@ select:focus-visible {
   border-radius: 8px;
   color: rgba(255,255,255,.7);
 }
+.admin-login-link { margin-top: 10px; }
 .conversation-item-shell:hover,
 .conversation-item-shell:focus-within { background: rgba(255,255,255,.055); }
 .conversation-item-shell.active { background: rgba(74, 200, 153, .13); color: white; }
@@ -938,6 +939,181 @@ kbd { padding: 2px 4px; border: 1px solid var(--line); border-bottom-width: 2px;
 .chat-error button { margin-left: auto; border: 0; background: transparent; color: inherit; font-size: 17px; }
 .sidebar-backdrop { display: none; }
 
+.admin-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 90% 12%, rgba(22, 137, 102, .08), transparent 28%),
+    var(--canvas);
+}
+.admin-header .brand { display: flex; }
+.admin-main {
+  width: min(1120px, calc(100% - 48px));
+  display: grid;
+  gap: 22px;
+  margin: 0 auto;
+  padding: 42px 0 64px;
+}
+.admin-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 36px 38px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 88% 20%, rgba(83, 199, 156, .2), transparent 34%),
+    var(--navy);
+  color: rgba(255,255,255,.7);
+  box-shadow: var(--shadow-md);
+}
+.admin-hero > div { max-width: 720px; }
+.admin-hero h1 {
+  margin: 14px 0 9px;
+  color: white;
+  font-size: clamp(30px, 4vw, 44px);
+  line-height: 1.08;
+  letter-spacing: -1.6px;
+}
+.admin-hero p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.admin-chat-button {
+  min-width: 172px;
+  height: 43px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 10px;
+  background: rgba(255,255,255,.09);
+  color: white;
+  font-size: 11px;
+  font-weight: 760;
+}
+.admin-chat-button:hover { background: rgba(255,255,255,.15); }
+.admin-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.admin-status-grid article {
+  min-height: 82px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 17px 18px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: white;
+  box-shadow: var(--shadow-sm);
+}
+.admin-status-icon {
+  width: 37px;
+  height: 37px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-size: 13px;
+  font-weight: 850;
+}
+.admin-status-grid small,
+.admin-status-grid strong { display: block; }
+.admin-status-grid small {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.admin-status-grid strong {
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.admin-panel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  box-shadow: var(--shadow-sm);
+}
+.admin-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 27px 30px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.admin-panel-header h2 {
+  margin: 9px 0 6px;
+  color: var(--ink);
+  font-size: 23px;
+  letter-spacing: -.6px;
+}
+.admin-panel-header p {
+  max-width: 670px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.admin-only-badge {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 99px;
+  background: #fff3df;
+  color: #995c13;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.admin-upload-form {
+  grid-template-columns: minmax(0, 1.15fr) minmax(230px, .85fr);
+  padding: 28px 30px 30px;
+}
+.admin-upload-form .pdf-dropzone { grid-row: span 2; min-height: 164px; }
+.admin-field {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+}
+.admin-field > span {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+}
+.admin-field select {
+  width: 100%;
+  height: 42px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: white;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+.admin-field small { color: var(--muted); font-size: 9px; }
+.admin-upload-form .upload-details,
+.admin-upload-form .replace-checkbox,
+.admin-upload-form .upload-alert,
+.admin-upload-form .upload-modal-actions {
+  grid-column: 1 / -1;
+}
+.admin-upload-form .upload-modal-actions {
+  border-top: 1px solid var(--line);
+  margin-top: 3px;
+  padding-top: 18px;
+}
+
 @media (max-width: 980px) {
   .auth-main { padding: 24px; }
   .auth-card { grid-template-columns: 1fr 1fr; }
@@ -953,6 +1129,9 @@ kbd { padding: 2px 4px; border: 1px solid var(--line); border-bottom-width: 2px;
   .sidebar-backdrop { position: fixed; inset: 0; display: block; border: 0; background: rgba(7,20,16,.46); backdrop-filter: blur(2px); z-index: 35; }
   .app-header .brand { display: flex; }
   .header-start { gap: 10px; }
+  .admin-main { width: min(100% - 32px, 900px); padding-top: 28px; }
+  .admin-upload-form { grid-template-columns: 1fr; }
+  .admin-upload-form .pdf-dropzone { grid-row: auto; }
 }
 
 @media (max-width: 760px) {
@@ -981,6 +1160,11 @@ kbd { padding: 2px 4px; border: 1px solid var(--line); border-bottom-width: 2px;
   .connection-pill span:last-child,
   .profile-copy { display: none; }
   .header-actions { gap: 7px; }
+  .admin-hero { align-items: flex-start; flex-direction: column; padding: 30px 28px; }
+  .admin-chat-button { min-width: 0; width: 100%; }
+  .admin-status-grid { grid-template-columns: 1fr; }
+  .admin-panel-header { padding: 24px; }
+  .admin-upload-form { padding: 24px; }
 }
 
 @media (max-width: 480px) {
@@ -1000,4 +1184,10 @@ kbd { padding: 2px 4px; border: 1px solid var(--line); border-bottom-width: 2px;
   .message-avatar { width: 29px; height: 29px; }
   .message-content { max-width: calc(100% - 37px); }
   .message-bubble { padding: 11px 12px; font-size: 12px; }
+  .admin-main { width: 100%; padding: 0 0 36px; }
+  .admin-hero,
+  .admin-panel { border-radius: 0; }
+  .admin-status-grid { padding: 0 14px; }
+  .admin-panel-header,
+  .admin-upload-form { padding-inline: 18px; }
 }

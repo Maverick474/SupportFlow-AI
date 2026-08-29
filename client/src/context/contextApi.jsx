@@ -131,7 +131,7 @@ export function SupportFlowProvider({ children }) {
   )
 
   const login = useCallback(
-    async ({ email, password }) => {
+    async ({ email, password, allowedRoles }) => {
       const response = await fetch(`${API_PREFIX}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -139,6 +139,12 @@ export function SupportFlowProvider({ children }) {
       })
       const payload = await parseResponse(response)
       if (!response.ok) throw new Error(getErrorMessage(payload, response.status))
+      if (
+        Array.isArray(allowedRoles)
+        && !allowedRoles.includes(payload.user?.role)
+      ) {
+        throw new Error('This account does not have administrator access.')
+      }
       saveSession(payload)
       return payload.user
     },
@@ -146,7 +152,7 @@ export function SupportFlowProvider({ children }) {
   )
 
   const signUp = useCallback(
-    async ({ fullName, email, password, workspaceId }) => {
+    async ({ fullName, email, password }) => {
       const response = await fetch(`${API_PREFIX}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -154,7 +160,6 @@ export function SupportFlowProvider({ children }) {
           full_name: fullName,
           email,
           password,
-          workspace_id: workspaceId,
         }),
       })
       const payload = await parseResponse(response)

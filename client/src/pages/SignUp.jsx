@@ -4,18 +4,11 @@ import { useSupportFlow } from '../context/contextApi.jsx'
 
 const PASSWORD_PATTERN = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,}$/
 
-function createWorkspaceId() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-  return '00000000-0000-4000-8000-000000000000'
-}
-
 export default function SignUp({ onNavigate }) {
   const { signUp, backendOnline } = useSupportFlow()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [workspaceId, setWorkspaceId] = useState(createWorkspaceId)
-  const [showWorkspace, setShowWorkspace] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -46,7 +39,6 @@ export default function SignUp({ onNavigate }) {
         fullName: fullName.trim(),
         email: email.trim(),
         password,
-        workspaceId: workspaceId.trim(),
       })
       onNavigate('/app', true)
     } catch (requestError) {
@@ -135,33 +127,6 @@ export default function SignUp({ onNavigate }) {
               </small>
             </div>
           </label>
-
-          <div className="workspace-field">
-            <div className="workspace-label-row">
-              <span>Workspace ID</span>
-              <button type="button" onClick={() => setShowWorkspace((value) => !value)}>
-                {showWorkspace ? 'Hide details' : 'Workspace details'}
-              </button>
-            </div>
-            {showWorkspace ? (
-              <>
-                <input
-                  type="text"
-                  value={workspaceId}
-                  onChange={(event) => setWorkspaceId(event.target.value)}
-                  aria-label="Workspace ID"
-                  required
-                />
-                <button className="secondary-small-button" type="button" onClick={() => setWorkspaceId(createWorkspaceId())}>
-                  Generate a new ID
-                </button>
-              </>
-            ) : (
-              <div className="workspace-summary">
-                <span className="status-dot online" /> New workspace ID generated securely
-              </div>
-            )}
-          </div>
 
           {error && <div className="form-error" role="alert">{error}</div>}
 

@@ -4,19 +4,42 @@ import './App.css'
 import Footer from './components/Footer.jsx'
 import Header from './components/Header.jsx'
 import { useSupportFlow } from './context/contextApi.jsx'
+import AdminLogin from './pages/AdminLogin.jsx'
+import AdminPage from './pages/AdminPage.jsx'
 import Login from './pages/Login.jsx'
 import Main from './pages/Main.jsx'
 import SignUp from './pages/SignUp.jsx'
 
+const ADMIN_ROLES = ['owner', 'admin']
+
 function normalizePath(pathname) {
-  if (pathname === '/signup') return '/signup'
-  if (pathname === '/app') return '/app'
+  const normalized = pathname.length > 1
+    ? pathname.replace(/\/+$/, '')
+    : pathname
+  if (normalized === '/signup') return '/signup'
+  if (normalized === '/app') return '/app'
+  if (normalized === '/admin') return '/admin'
+  if (normalized === '/admin/login') return '/admin/login'
   return '/login'
+}
+
+function routeForSession(path, user) {
+  if (!user) {
+    if (path === '/app') return '/login'
+    if (path === '/admin') return '/admin/login'
+    return path
+  }
+
+  const isAdmin = ADMIN_ROLES.includes(user.role)
+  if (!isAdmin) return '/app'
+  if (path === '/app' || path === '/admin') return path
+  return '/admin'
 }
 
 export default function App() {
   const { user, authReady } = useSupportFlow()
   const [path, setPath] = useState(() => normalizePath(window.location.pathname))
+  const activePath = routeForSession(path, user)
 
   const navigate = useCallback((nextPath, replace = false) => {
     const normalized = normalizePath(nextPath)
@@ -33,11 +56,10 @@ export default function App() {
 
   useEffect(() => {
     if (!authReady) return
-    const requiredPath = user ? '/app' : path === '/app' ? '/login' : path
-    if (window.location.pathname !== requiredPath) {
-      window.history.replaceState({}, '', requiredPath)
+    if (window.location.pathname !== activePath) {
+      window.history.replaceState({}, '', activePath)
     }
-  }, [authReady, path, user])
+  }, [activePath, authReady])
 
   if (!authReady) {
     return (
@@ -48,13 +70,28 @@ export default function App() {
     )
   }
 
-  if (user) return <Main onNavigate={navigate} />
+  if (user) {
+    if (activePath === '/admin' && ADMIN_ROLES.includes(user.role)) {
+      return <AdminPage onNavigate={navigate} />
+    }
+    return <Main onNavigate={navigate} />
+  }
+
+  const adminLoginView = (
+    activePath === '/admin' || activePath === '/admin/login'
+  )
 
   return (
     <div className="public-shell">
-      <Header publicView onNavigate={navigate} />
+      <Header
+        publicView
+        homePath={adminLoginView ? '/admin/login' : '/login'}
+        onNavigate={navigate}
+      />
       <main className="auth-main">
-        {path === '/signup' ? (
+        {adminLoginView ? (
+          <AdminLogin onNavigate={navigate} />
+        ) : activePath === '/signup' ? (
           <SignUp onNavigate={navigate} />
         ) : (
           <Login onNavigate={navigate} />

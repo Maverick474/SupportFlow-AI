@@ -39,7 +39,7 @@ class AuthService:
             "email": str(request.email).lower(),
             "password_hash": self.password_hash.hash(request.password),
             "full_name": request.full_name.strip(),
-            "workspace_id": str(request.workspace_id),
+            "workspace_id": str(self.settings.default_workspace_id),
             "role": "customer",
             "is_active": True,
             "created_at": now,

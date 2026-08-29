@@ -519,11 +519,17 @@ export default function Main({ onNavigate }) {
             <button
               type="button"
               className={`knowledge-upload-button ${canManageKnowledge ? '' : 'locked'}`}
-              onClick={openUploadDialog}
-              title={canManageKnowledge ? 'Upload a PDF to the workspace knowledge base' : 'Owner or admin access is required'}
+              onClick={() => {
+                if (canManageKnowledge) {
+                  onNavigate('/admin')
+                  return
+                }
+                openUploadDialog()
+              }}
+              title={canManageKnowledge ? 'Open the knowledge administration portal' : 'Owner or admin access is required'}
             >
               <span aria-hidden="true">↑</span>
-              Upload PDF
+              {canManageKnowledge ? 'Manage knowledge' : 'Upload PDF'}
               {!canManageKnowledge && <small>Admin</small>}
             </button>
             <div className="thread-status">

@@ -2,20 +2,38 @@ import { useState } from 'react'
 
 import { useSupportFlow } from '../context/contextApi.jsx'
 
-export default function Header({ onNavigate, onToggleSidebar, publicView = false }) {
+export default function Header({
+  onNavigate,
+  onToggleSidebar,
+  publicView = false,
+  adminView = false,
+  homePath,
+  logoutPath,
+}) {
   const { user, logout, backendOnline } = useSupportFlow()
   const [menuOpen, setMenuOpen] = useState(false)
+  const isAdmin = ['owner', 'admin'].includes(user?.role)
+  const resolvedHomePath = homePath || (
+    user ? (isAdmin ? '/admin' : '/app') : '/login'
+  )
+  const resolvedLogoutPath = logoutPath || (
+    isAdmin ? '/admin/login' : '/login'
+  )
 
   async function handleLogout() {
     setMenuOpen(false)
     await logout()
-    onNavigate?.('/login')
+    onNavigate?.(resolvedLogoutPath)
   }
 
   return (
-    <header className={publicView ? 'site-header public-header' : 'site-header app-header'}>
+    <header className={
+      publicView
+        ? 'site-header public-header'
+        : 'site-header app-header' + (adminView ? ' admin-header' : '')
+    }>
       <div className="header-start">
-        {!publicView && (
+        {!publicView && onToggleSidebar && (
           <button
             className="icon-button mobile-menu-button"
             type="button"
@@ -25,7 +43,7 @@ export default function Header({ onNavigate, onToggleSidebar, publicView = false
             <span aria-hidden="true">☰</span>
           </button>
         )}
-        <button className="brand" type="button" onClick={() => onNavigate?.(user ? '/app' : '/login')}>
+        <button className="brand" type="button" onClick={() => onNavigate?.(resolvedHomePath)}>
           <span className="brand-mark" aria-hidden="true">
             <span />
             <span />

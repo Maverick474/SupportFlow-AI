@@ -1,5 +1,6 @@
 from functools import lru_cache
 import os
+from uuid import UUID
 
 from dotenv import load_dotenv
 from pydantic import AliasChoices, Field, SecretStr
@@ -49,6 +50,7 @@ class Settings(BaseSettings):
     n8n_webhook_url: str = ""
     n8n_webhook_secret: SecretStr | None = None
     n8n_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    default_workspace_id: UUID
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
