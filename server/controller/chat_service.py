@@ -1,9 +1,9 @@
 import asyncio
 from uuid import UUID, uuid4
 
-from agents.routing import route_agent_type
+from agents.routing import route_agent_type, should_create_ticket
 from agents.tickets import TicketAgent
-from agents.workflow import SupportFlowWorkflow
+from agents.workflow import SupportFlowWorkflow, small_talk_kind
 from controller.conversation_store import ConversationStore
 from models.agent import AgentState
 from models.auth import UserPublic
@@ -35,26 +35,31 @@ class ChatService:
         request: ChatRequest,
     ) -> ChatResponse:
         conversation_id = request.conversation_id or uuid4()
-        agent_type = route_agent_type(
-            request.question,
-            request.agent_type,
+        interaction_kind = small_talk_kind(request.question)
+        agent_type = (
+            "general"
+            if interaction_kind is not None
+            else route_agent_type(request.question, request.agent_type)
         )
+        stored_agent_type = agent_type
         if (
             request.conversation_id is not None
             and request.agent_type is None
-            and agent_type == "general"
         ):
             previous_agent_type = await self.conversation_store.get_agent_type(
                 mongo_user_id=user.id,
                 conversation_id=conversation_id,
             )
-            if previous_agent_type is not None:
+            if interaction_kind is not None:
+                stored_agent_type = previous_agent_type or "general"
+            elif agent_type == "general" and previous_agent_type is not None:
                 agent_type = previous_agent_type
+                stored_agent_type = previous_agent_type
 
         await self.conversation_store.ensure_conversation(
             mongo_user_id=user.id,
             conversation_id=conversation_id,
-            agent_type=agent_type,
+            agent_type=stored_agent_type,
             first_question=request.question,
         )
         await self.conversation_store.append_message(
@@ -91,19 +96,36 @@ class ChatService:
 
         validation = result["validation"]
         scope_decision = result.get("scope_decision")
-        explicit_ticket_request = (
-            agent_type == "ticket"
+        ticket_request = (
+            interaction_kind is None
             and scope_decision is not None
             and scope_decision.classification == "in_scope"
             and validation.verdict != "refuse"
+            and should_create_ticket(
+                request.question,
+                agent_type=agent_type,
+                requested_agent=request.agent_type,
+            )
         )
-        if explicit_ticket_request and validation.verdict != "escalate":
+        if ticket_request and validation.verdict != "escalate":
             validation = validation.model_copy(
                 update={
                     "verdict": "escalate",
                     "feedback": (
-                        "The Ticket and Escalation agent was explicitly selected. "
-                        "Create a ticket for authorized human review."
+                        "The request describes an active support incident or "
+                        "explicitly asks for a ticket or live support action."
+                    ),
+                }
+            )
+            result["validation"] = validation
+        elif validation.verdict == "escalate":
+            validation = validation.model_copy(
+                update={
+                    "verdict": "revise",
+                    "feedback": (
+                        "The knowledge answer could not be fully verified, but "
+                        "the user did not report an active incident or request "
+                        "a ticket. Do not create a support ticket automatically."
                     ),
                 }
             )
@@ -111,7 +133,7 @@ class ChatService:
 
         run_id = uuid4()
         created_ticket: dict | None = None
-        if validation.verdict == "escalate":
+        if ticket_request:
             ticket_config = await asyncio.to_thread(
                 self.repository.get_agent_config,
                 user.workspace_id,
@@ -186,7 +208,7 @@ class ChatService:
             "run_id": str(run_id),
             "agent_type": webhook_agent_type,
             "validation_status": validation.verdict,
-            "requires_human_review": validation.verdict == "escalate",
+            "requires_human_review": created_ticket is not None,
         }
         if created_ticket is not None:
             webhook_payload.update(created_ticket)

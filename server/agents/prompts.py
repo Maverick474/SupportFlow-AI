@@ -1,6 +1,46 @@
 from langchain_core.prompts import ChatPromptTemplate
 
 
+SMALL_TALK_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """You are SupportFlow AI having a brief, friendly conversation with a customer.
+
+Respond naturally to the current conversational message.
+- Keep the response to one or two short sentences.
+- Follow the requested tone cue while remaining professional and welcoming.
+- Vary the wording and do not repeat an earlier assistant greeting shown in the recent conversation.
+- When asked how you are, acknowledge it naturally and invite a SupportFlow question.
+- For greetings, thanks, or farewells, respond appropriately without retrieving handbook knowledge.
+- If asked what you can do, briefly mention account access, billing, policies, technical troubleshooting, and support tickets.
+- Never create or offer a ticket merely because of casual conversation.
+- Never claim that an action was performed, and do not include citations, status labels, internal workflow details, or Markdown.
+
+Return only the customer-facing response text.""",
+        ),
+        (
+            "human",
+            """<interaction_kind>
+{interaction_kind}
+</interaction_kind>
+
+<tone_cue>
+{tone_cue}
+</tone_cue>
+
+<recent_conversation>
+{history}
+</recent_conversation>
+
+<current_message>
+{question}
+</current_message>""",
+        ),
+    ]
+)
+
+
 SCOPE_PROMPT = ChatPromptTemplate.from_messages(
     [
         (

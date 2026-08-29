@@ -6,13 +6,7 @@ from models.chat import AgentType
 
 
 AGENT_KEYWORDS: dict[AgentType, tuple[str, ...]] = {
-    "ticket": (
-        "human agent",
-        "human support",
-        "representative",
-        "escalate",
-        "escalation",
-    ),
+    "ticket": (),
     "billing": (
         "bill",
         "billing",
@@ -36,6 +30,7 @@ AGENT_KEYWORDS: dict[AgentType, tuple[str, ...]] = {
     ),
     "policy": (
         "policy",
+        "policies",
         "privacy",
         "retention",
         "security",
@@ -61,8 +56,15 @@ AGENT_KEYWORDS: dict[AgentType, tuple[str, ...]] = {
 
 AGENT_PATTERNS: dict[AgentType, tuple[str, ...]] = {
     "ticket": (
-        r"\b(?:open|create|raise|submit|need) (?:a )?(?:support )?(?:ticket|case)\b",
-        r"\b(?:speak|talk) (?:to|with) (?:a )?(?:human|representative|agent)\b",
+        r"\b(?:open|create|generate|raise|submit|log|file|make) "
+        r"(?:me )?(?:a )?(?:support )?(?:ticket|case)\b",
+        r"\b(?:need|want|request|would like) (?:a )?(?:support )?"
+        r"(?:ticket|case)\b",
+        r"\b(?:need|want|request|would like) (?:a )?"
+        r"(?:human agent|human support|representative)\b",
+        r"\b(?:please )?escalate (?:this|it|my request|my issue|the issue)\b",
+        r"\b(?:speak|talk|connect) (?:me )?(?:to|with) (?:a )?"
+        r"(?:human|representative|agent)\b",
     ),
     "billing": (),
     "account": (),
@@ -73,6 +75,76 @@ AGENT_PATTERNS: dict[AgentType, tuple[str, ...]] = {
     ),
     "general": (),
 }
+
+
+_ACTIVE_INCIDENT_SUBJECT = re.compile(
+    r"\b(?:i|i'm|i am|i've|i have|me|my|mine|we|we're|we are|"
+    r"we've|we have|us|our|ours)\b"
+)
+_ACTIVE_INCIDENT_FAILURE = re.compile(
+    r"\b(?:can(?:not|'t)|could(?: not|n't)|unable|locked out|"
+    r"not working|does(?: not|n't) work|did(?: not|n't) work|"
+    r"fail(?:ed|ing|s)?|broken|error|issue|problem|"
+    r"(?:having|experiencing) (?:technical )?trouble|outage|"
+    r"not arriv(?:e|ed|ing)|did(?: not|n't) receive|"
+    r"charged twice|duplicate charge|keeps? (?:failing|crashing))\b"
+)
+_LIVE_SUPPORT_ACTION = re.compile(
+    r"\b(?:(?:can|could|would|will) you|please)\s+"
+    r"(?:refund|cancel|unlock|restore|change|update|delete|remove|"
+    r"disable|enable|resend|reset)\b"
+)
+
+
+def is_explicit_ticket_request(
+    question: str,
+    requested_agent: AgentType | None = None,
+) -> bool:
+    """Return whether the user explicitly requested a ticket or a human."""
+    if requested_agent == "ticket":
+        return True
+    normalized = " ".join(question.casefold().split())
+    return any(
+        re.search(pattern, normalized)
+        for pattern in AGENT_PATTERNS["ticket"]
+    ) or any(
+        re.search(rf"\b{re.escape(keyword)}\b", normalized)
+        for keyword in AGENT_KEYWORDS["ticket"]
+    )
+
+
+def is_active_support_incident(
+    question: str,
+    agent_type: AgentType,
+) -> bool:
+    """Identify a customer-specific failure, not a general handbook question."""
+    if agent_type not in {"technical", "billing", "account"}:
+        return False
+    normalized = " ".join(question.casefold().split())
+    return bool(
+        _ACTIVE_INCIDENT_SUBJECT.search(normalized)
+        and _ACTIVE_INCIDENT_FAILURE.search(normalized)
+    )
+
+
+def requires_live_support_action(question: str) -> bool:
+    """Identify a request for an action the chat agent cannot perform."""
+    normalized = " ".join(question.casefold().split())
+    return bool(_LIVE_SUPPORT_ACTION.search(normalized))
+
+
+def should_create_ticket(
+    question: str,
+    *,
+    agent_type: AgentType,
+    requested_agent: AgentType | None = None,
+) -> bool:
+    """Gate tickets to explicit requests, active incidents, or live actions."""
+    return (
+        is_explicit_ticket_request(question, requested_agent)
+        or is_active_support_incident(question, agent_type)
+        or requires_live_support_action(question)
+    )
 
 
 @traceable(

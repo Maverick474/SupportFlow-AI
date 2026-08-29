@@ -1,8 +1,11 @@
+import logging
 import re
+import secrets
 from functools import lru_cache
 from typing import Literal
 from uuid import UUID
 
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.redis import RedisSaver
@@ -13,6 +16,7 @@ from agents.prompts import (
     GENERATOR_PROMPT,
     REFINER_PROMPT,
     SCOPE_PROMPT,
+    SMALL_TALK_PROMPT,
     VALIDATOR_PROMPT,
 )
 from controller.config import Settings
@@ -32,6 +36,9 @@ from service.knowledge import (
 
 MAX_COMPLETION_TOKENS = 1_000
 MAX_REVISIONS = 2
+SMALL_TALK_COMPLETION_TOKENS = 160
+
+logger = logging.getLogger(__name__)
 
 
 def format_conversation_history(state: AgentState, limit: int = 3) -> str:
@@ -97,45 +104,102 @@ def conversation_recall_kind(
     return None
 
 
-def small_talk_response(question: str) -> str | None:
+SmallTalkKind = Literal[
+    "greeting",
+    "wellbeing",
+    "thanks",
+    "farewell",
+    "capabilities",
+]
+
+
+def small_talk_kind(question: str) -> SmallTalkKind | None:
     normalized = normalize_evidence_text(question).casefold()
     normalized = re.sub(r"[^\w'\s-]", " ", normalized)
     normalized = normalize_evidence_text(normalized)
 
     if re.fullmatch(
-        r"(?:(?:hi|hello|hey)(?: there)?(?: how are you)?)|"
-        r"(?:how are you)|(?:how is it going)|(?:how's it going)|"
-        r"(?:good (?:morning|afternoon|evening))",
+        r"(?:hi|hello|hey|hiya|howdy)(?: there)?|"
+        r"good (?:morning|afternoon|evening)",
         normalized,
     ):
-        if "how are you" in normalized or "how is it going" in normalized:
-            return (
-                "I’m doing well, thanks! How can I help with SupportFlow "
-                "today?"
-            )
-        return "Hi! How can I help with SupportFlow today?"
+        return "greeting"
 
-    if normalized in {"thanks", "thank you", "thanks a lot"}:
-        return (
-            "You’re welcome! If you have another SupportFlow question, "
-            "I’m here to help."
-        )
+    wellbeing = (
+        r"how are you(?: doing)?|how (?:is|s) it going|how's it going|"
+        r"how are things|what(?:'s| is) up"
+    )
+    if re.fullmatch(wellbeing, normalized) or re.fullmatch(
+        rf"(?:hi|hello|hey)(?: there)?\s+(?:{wellbeing})",
+        normalized,
+    ):
+        return "wellbeing"
+
+    if normalized in {
+        "thanks",
+        "thank you",
+        "thanks a lot",
+        "many thanks",
+        "much appreciated",
+    }:
+        return "thanks"
 
     if normalized in {"bye", "goodbye", "see you", "see you later"}:
-        return (
-            "Goodbye! Feel free to return whenever you need SupportFlow help."
-        )
+        return "farewell"
 
     if normalized in {
         "what can you do",
         "how can you help",
         "who are you",
     }:
-        return (
-            "I can help with SupportFlow account access, billing, policies, "
-            "and technical troubleshooting."
-        )
+        return "capabilities"
     return None
+
+
+def format_small_talk_history(state: AgentState, limit: int = 3) -> str:
+    turns = state.get("conversation_history", [])[-limit:]
+    if not turns:
+        return "(no earlier conversational turns)"
+
+    lines: list[str] = []
+    for turn in turns:
+        question = normalize_evidence_text(turn.get("question", ""))
+        answer = normalize_evidence_text(turn.get("answer", ""))
+        if question:
+            lines.append(f"Customer: {question}")
+        if answer:
+            lines.append(f"Assistant: {answer}")
+    return "\n".join(lines) or "(no earlier conversational turns)"
+
+
+def fallback_small_talk_response(interaction_kind: SmallTalkKind) -> str:
+    responses: dict[SmallTalkKind, tuple[str, ...]] = {
+        "greeting": (
+            "Hello! What can I help you with in SupportFlow today?",
+            "Hi there! How may I assist you with SupportFlow?",
+            "Welcome! What SupportFlow question can I help with?",
+        ),
+        "wellbeing": (
+            "I’m doing well, thank you! What can I help you with in SupportFlow?",
+            "I’m ready to help, thanks for asking! What would you like to work on?",
+            "Doing well and happy to assist! What SupportFlow help do you need?",
+        ),
+        "thanks": (
+            "You’re very welcome! I’m here if you need anything else.",
+            "Happy to help! Let me know if another SupportFlow question comes up.",
+            "Anytime! Feel free to ask if you need more assistance.",
+        ),
+        "farewell": (
+            "Goodbye! I’ll be here whenever you need SupportFlow help.",
+            "Take care! Feel free to come back with any SupportFlow question.",
+            "See you later! I’m here whenever you need assistance.",
+        ),
+        "capabilities": (
+            "I can help with account access, billing, policies, technical troubleshooting, and creating support tickets when human review is needed.",
+            "I assist with SupportFlow accounts, billing, policies, technical issues, and properly escalated support tickets.",
+        ),
+    }
+    return secrets.choice(responses[interaction_kind])
 
 
 def build_retrieval_query(state: AgentState) -> str:
@@ -396,6 +460,24 @@ class SupportFlowWorkflow:
             }
         )
         return generator_chain, validator_chain, refiner_chain, scope_chain
+
+    @lru_cache(maxsize=16)
+    def _small_talk_chain(self, generator_model: str):
+        small_talk_llm = ChatOpenAI(
+            base_url=self.settings.openrouter_base_url,
+            api_key=self.settings.openrouter_key,
+            model=generator_model,
+            temperature=0.9,
+            max_completion_tokens=SMALL_TALK_COMPLETION_TOKENS,
+        )
+        return (
+            SMALL_TALK_PROMPT | small_talk_llm | StrOutputParser()
+        ).with_config(
+            {
+                "run_name": "supportflow.small-talk-agent",
+                "tags": ["supportflow", "agent:small-talk"],
+            }
+        )
 
     def scope_check_node(self, state: AgentState) -> dict:
         _, _, _, scope_chain = self._chains(
@@ -770,12 +852,32 @@ class SupportFlowWorkflow:
             "conversation_history": history[-2:] + [completed_turn],
         }
 
-    @staticmethod
-    def small_talk_node(state: AgentState) -> dict:
+    def small_talk_node(self, state: AgentState) -> dict:
         history = state.get("conversation_history", [])
-        final = small_talk_response(state["question"])
-        if final is None:
-            final = "Hi! How can I help with SupportFlow today?"
+        interaction_kind = small_talk_kind(state["question"]) or "greeting"
+        tone_cue = secrets.choice(
+            (
+                "warm and concise",
+                "friendly and upbeat",
+                "calm and welcoming",
+                "natural and conversational",
+            )
+        )
+        try:
+            final = self._small_talk_chain(state["generator_model"]).invoke(
+                {
+                    "interaction_kind": interaction_kind,
+                    "tone_cue": tone_cue,
+                    "history": format_small_talk_history(state),
+                    "question": state["question"],
+                }
+            )
+            final = normalize_evidence_text(final)
+            if not final:
+                raise ValueError("The small-talk model returned an empty response.")
+        except Exception:
+            logger.exception("Small-talk generation failed; using a safe fallback.")
+            final = fallback_small_talk_response(interaction_kind)
 
         draft = DraftAnswer(
             answer=final,
@@ -797,6 +899,7 @@ class SupportFlowWorkflow:
             "verdict": "pass",
         }
         return {
+            "scope_decision": None,
             "retrieval_query": state["question"],
             "retrieved_passages": [],
             "retrieved_chunk_ids": [],
@@ -860,7 +963,7 @@ class SupportFlowWorkflow:
     ) -> Literal["recall", "small_talk", "scope"]:
         if conversation_recall_kind(state["question"]) is not None:
             return "recall"
-        if small_talk_response(state["question"]) is not None:
+        if small_talk_kind(state["question"]) is not None:
             return "small_talk"
         return "scope"
 
