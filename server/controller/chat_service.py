@@ -224,7 +224,7 @@ class ChatService:
             webhook_payload.update(created_ticket)
             webhook_payload["handled_by_agent"] = "ticket"
             webhook_payload["source_agent_type"] = agent_type
-        self.n8n_webhook.dispatch(webhook_payload)
+        await self.n8n_webhook.dispatch(webhook_payload)
         return ChatResponse(
             conversation_id=conversation_id,
             run_id=run_id,

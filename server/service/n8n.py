@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from typing import Any
 
@@ -27,24 +26,25 @@ class N8nWebhookClient:
             headers=headers,
             timeout=httpx.Timeout(timeout_seconds),
         )
-        self._pending_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def enabled(self) -> bool:
         return bool(self.webhook_url)
 
-    def dispatch(self, payload: dict[str, Any]) -> None:
+    async def dispatch(self, payload: dict[str, Any]) -> None:
         if not self.enabled:
             return
-
-        task = asyncio.create_task(self._send(payload))
-        self._pending_tasks.add(task)
-        task.add_done_callback(self._pending_tasks.discard)
+        await self._send(payload)
 
     async def _send(self, payload: dict[str, Any]) -> None:
         try:
             response = await self._client.post(self.webhook_url, json=payload)
             response.raise_for_status()
+            logger.info(
+                "n8n webhook delivered for run %s with status %s",
+                payload.get("run_id", "unknown"),
+                response.status_code,
+            )
         except httpx.HTTPError as exc:
             logger.warning(
                 "n8n webhook delivery failed for run %s: %s",
@@ -53,9 +53,4 @@ class N8nWebhookClient:
             )
 
     async def aclose(self) -> None:
-        if self._pending_tasks:
-            await asyncio.gather(
-                *tuple(self._pending_tasks),
-                return_exceptions=True,
-            )
         await self._client.aclose()
