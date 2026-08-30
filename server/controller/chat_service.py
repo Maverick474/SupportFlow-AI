@@ -114,7 +114,6 @@ class ChatService:
             and should_create_ticket(
                 request.question,
                 agent_type=agent_type,
-                requested_agent=request.agent_type,
             )
         )
         if ticket_request and validation.verdict != "escalate":

@@ -113,13 +113,8 @@ _LIVE_SUPPORT_ACTION = re.compile(
 )
 
 
-def is_explicit_ticket_request(
-    question: str,
-    requested_agent: AgentType | None = None,
-) -> bool:
+def is_explicit_ticket_request(question: str) -> bool:
     """Return whether the user explicitly requested a ticket or a human."""
-    if requested_agent == "ticket":
-        return True
     normalized = " ".join(question.casefold().split())
     return any(
         re.search(pattern, normalized)
@@ -156,11 +151,10 @@ def should_create_ticket(
     question: str,
     *,
     agent_type: AgentType,
-    requested_agent: AgentType | None = None,
 ) -> bool:
     """Gate tickets to explicit, blocked, repeated, or privileged requests."""
     return (
-        is_explicit_ticket_request(question, requested_agent)
+        is_explicit_ticket_request(question)
         or is_ticket_worthy_incident(question, agent_type)
         or requires_live_support_action(question)
     )
@@ -175,7 +169,10 @@ def route_agent_type(
     question: str,
     requested_agent: AgentType | None = None,
 ) -> AgentType:
-    if requested_agent is not None:
+    # A restored Ticket conversation must not turn an informational follow-up
+    # into a new ticket. Ticket intent is determined from the message below;
+    # explicit knowledge-agent selections still override automatic routing.
+    if requested_agent is not None and requested_agent != "ticket":
         return requested_agent
 
     normalized = question.casefold()
