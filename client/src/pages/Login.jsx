@@ -54,7 +54,7 @@ export default function Login({ onNavigate }) {
       <div className="auth-form-panel">
         <div className="auth-form-heading">
           <span className={`server-indicator ${backendOnline ? 'ready' : ''}`}>
-            <span /> {backendOnline ? 'Backend connected' : 'Waiting for backend'}
+            <span /> {backendOnline ? 'Connected' : 'Waiting for backend'}
           </span>
           <h2 id="login-title">Welcome back</h2>
           <p>Sign in to continue to your support workspace.</p>

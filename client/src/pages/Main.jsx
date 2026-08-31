@@ -534,7 +534,7 @@ export default function Main({ onNavigate }) {
             </button>
             <div className="thread-status">
               <span className="status-dot online" />
-              {activeConversation ? 'Conversation saved in Redis' : 'Ready for a new question'}
+              {activeConversation ? 'Start your conversation' : 'Ready for a new question'}
             </div>
           </div>
         </div>
