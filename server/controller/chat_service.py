@@ -116,18 +116,19 @@ class ChatService:
                 agent_type=agent_type,
             )
         )
-        if ticket_request and validation.verdict != "escalate":
-            validation = validation.model_copy(
-                update={
-                    "verdict": "escalate",
-                    "feedback": (
-                        "The request meets the strict ticket gate: an explicit "
-                        "ticket or human request, a privileged live action, an "
-                        "account lockout, or repeated unresolved attempts."
-                    ),
-                }
-            )
-            result["validation"] = validation
+        if ticket_request:
+            if validation.verdict != "escalate":
+                validation = validation.model_copy(
+                    update={
+                        "verdict": "escalate",
+                        "feedback": (
+                            "The request meets the strict ticket gate: an explicit "
+                            "ticket or human request, a privileged live action, an "
+                            "account lockout, or repeated unresolved attempts."
+                        ),
+                    }
+                )
+                result["validation"] = validation
         elif validation.verdict == "escalate":
             validation = validation.model_copy(
                 update={
